@@ -15,7 +15,6 @@ print(f"[{time.strftime('%H:%M:%S' )}] Библиотеки успешно им�
 
 TARGET_URL = "https://anneofcarversville.com/"
 BASE_DOMAIN = "https://anneofcarversville.com"
-IMAGES_DIR = "temp_images"
 HISTORY_FILE = "posted.json"
 MAX_HISTORY = 100
 
@@ -78,7 +77,7 @@ def generate_ai_article(model_name, magazine, description_hint):
   )
   try:
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.8-flash",
         contents=prompt,
     )
     if response and response.text:
@@ -100,113 +99,15 @@ def generate_ai_article(model_name, magazine, description_hint):
   )
 
 
-def download_temp_image(img_url):
-  if not img_url or "data:image" in img_url or "svg" in img_url:
-    return None
-  if not os.path.exists(IMAGES_DIR):
-    os.makedirs(IMAGES_DIR)
-  try:
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
-            " like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
-    }
-    print(f"[{time.strftime('%H:%M:%S' )}] Скачивание картинки: {img_url}")
-    r = requests.get(img_url, headers=headers, timeout=10)
-    if r.status_code == 200 and len(r.content) > 10000:
-      filename = f"temp_{abs(hash(img_url)) % 100000}.jpg"
-      filepath = os.path.join(IMAGES_DIR, filename)
-      with open(filepath, "wb") as f:
-        f.write(r.content)
-      return filepath
-  except Exception as e:
-    print(f"[{time.strftime('%H:%M:%S' )}] Ошибка скачивания фото {img_url}: {e}")
-  return None
-
-
-def upload_photo_to_vk(filepath):
-  try:
-    print(
-        f"[{time.strftime('%H:%M:%S' )}] Запрос сервера загрузки фото в VK"
-        " (photos.getWallUploadServer)..."
-    )
-    res = requests.get(
-        "https://api.vk.com/method/photos.getWallUploadServer",
-        params={
-            "group_id": int(RAW_GROUP_ID),
-            "access_token": VK_TOKEN,
-            "v": "5.199",
-        },
-        timeout=10,
-    ).json()
-
-    if "error" in res:
-      print(f"Ошибка VK getWallUploadServer: {res['error']}")
-      return None
-
-    upload_url = res["response"]["upload_url"]
-
-    print(
-        f"[{time.strftime('%H:%M:%S' )}] Отправка файла картинки на сервер"
-        " ВК..."
-    )
-    with open(filepath, "rb") as f:
-      upload_res = requests.post(
-          upload_url, files={"photo": f}, timeout=15
-      ).json()
-
-    print(
-        f"[{time.strftime('%H:%M:%S' )}] Сохранение фото на стене"
-        " (photos.saveWallPhoto)..."
-    )
-    save_res = requests.post(
-        "https://api.vk.com/method/photos.saveWallPhoto",
-        data={
-            "group_id": int(RAW_GROUP_ID),
-            "photo": upload_res["photo"],
-            "server": upload_res["server"],
-            "hash": upload_res["hash"],
-            "access_token": VK_TOKEN,
-            "v": "5.199",
-        },
-        timeout=10,
-    ).json()
-
-    if "error" in save_res:
-      print(f"Ошибка VK saveWallPhoto: {save_res['error']}")
-      return None
-
-    photo_obj = save_res["response"][0]
-    attachment = f"photo{photo_obj['owner_id']}_{photo_obj['id']}"
-    print(
-        f"[{time.strftime('%H:%M:%S' )}] Фото успешно загружено и привязано:"
-        f" {attachment}"
-    )
-    return attachment
-
-  except Exception as e:
-    print(f"[{time.strftime('%H:%M:%S' )}] Исключение при загрузке фото в VK: {e}")
-    return None
-
-
-def publish_post_to_vk(title, text, image_paths, source_link):
+def publish_post_to_vk(title, text, source_link):
   if not VK_TOKEN or not RAW_GROUP_ID:
     print("Пропуск публикации: не заданы VK_TOKEN или VK_GROUP_ID.")
     return False
 
-  attachments = []
-  for path in image_paths:
-    att = upload_photo_to_vk(path)
-    if att:
-      attachments.append(att)
-    time.sleep(0.5)
-
-  if not attachments:
-    print("Не удалось загрузить ни одного фото в VK, отменяем пост.")
-    return False
-
-  full_message = f"{title}\n\n{text}\n\nИсточник: {source_link}"
+  # Формируем сообщение, где ссылка идет отдельной строкой, чтобы ВК сгенерировал превью
+  full_message = f"{title}\n\n{text}\n\n{source_link}"
+  
+  # Отложенная публикация через 2 часа (можно изменить при желании)
   future_time = int(time.time()) + 7200
 
   try:
@@ -220,7 +121,6 @@ def publish_post_to_vk(title, text, image_paths, source_link):
             "owner_id": -int(RAW_GROUP_ID),
             "from_group": 1,
             "message": full_message,
-            "attachments": ",".join(attachments),
             "publish_date": future_time,
             "access_token": VK_TOKEN,
             "v": "5.199",
@@ -242,16 +142,6 @@ def publish_post_to_vk(title, text, image_paths, source_link):
   except Exception as e:
     print(f"[{time.strftime('%H:%M:%S' )}] Исключение при вызове wall.post: {e}")
     return False
-
-
-def cleanup_temp_images():
-  if not os.path.exists(IMAGES_DIR):
-    return
-  for f in os.listdir(IMAGES_DIR):
-    try:
-      os.remove(os.path.join(IMAGES_DIR, f))
-    except Exception:
-      pass
 
 
 def run():
@@ -289,10 +179,6 @@ def run():
   print(
       f"[{time.strftime('%H:%M:%S' )}] Главная страница загружена,"
       f" размер ответа: {len(response.text)} символов"
-  )
-  print(
-      f"[{time.strftime('%H:%M:%S' )}] Превью ответа:"
-      f" {response.text[:200].strip()}"
   )
 
   soup = BeautifulSoup(response.text, "html.parser")
@@ -350,37 +236,6 @@ def run():
       "article, .entry-content, .post-body, .content"
   ) or art_soup.select_one("body")
 
-  image_paths = []
-  seen_urls = set()
-  for img in content_block.find_all("img"):
-    src = (
-        img.get("data-src") or img.get("data-original") or img.get("src") or ""
-    )
-    if src and "data:image" not in src:
-      if not src.startswith("http"):
-        src = BASE_DOMAIN + src
-      if (
-          "avatar" not in src
-          and "logo" not in src
-          and "icon" not in src
-          and src not in seen_urls
-      ):
-        seen_urls.add(src)
-        local_path = download_temp_image(src)
-        if local_path:
-          image_paths.append(local_path)
-        if len(image_paths) >= 9:
-          break
-
-  print(
-      f"[{time.strftime('%H:%M:%S' )}] Успешно скачано локальных фото:"
-      f" {len(image_paths)}"
-  )
-  if not image_paths:
-    print("Нет подходящих картинок, пропускаем статью.")
-    cleanup_temp_images()
-    return
-
   paragraphs = [
       p.get_text(strip=True)
       for p in content_block.find_all("p")
@@ -395,7 +250,7 @@ def run():
       model_name=title, magazine=magazine_hint, description_hint=context_hint
   )
 
-  success = publish_post_to_vk(title, ai_text, image_paths, link)
+  success = publish_post_to_vk(title, ai_text, link)
   if success:
     history.append(link)
     save_history(history)
@@ -403,7 +258,6 @@ def run():
         f"[{time.strftime('%H:%M:%S' )}] Ссылка добавлена в историю posted.json."
     )
 
-  cleanup_temp_images()
   print(f"[{time.strftime('%H:%M:%S' )}] Работа скрипта успешно завершена.")
 
 
