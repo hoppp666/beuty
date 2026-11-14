@@ -5,8 +5,8 @@ from bs4 import BeautifulSoup
 from google import genai
 import requests
 
-TARGET_URL = "https://fashiongonerogue.com/beauty/"
-BASE_DOMAIN = "https://fashiongonerogue.com"
+TARGET_URL = "https://www.designscene.net/beauty"
+BASE_DOMAIN = "https://www.designscene.net"
 FEED_FILENAME = "feed.xml"
 IMAGES_DIR = "images"
 MAX_ITEMS_HISTORY = 30
@@ -113,12 +113,12 @@ def parse_articles(base_pages_url):
   soup = BeautifulSoup(response.text, "html.parser")
   articles = []
 
-  # Ищем посты по универсальным классам WordPress (post, hentry) или тегу article
-  item_list = soup.select("article, .post, .entry")
+  # На Design SCENE посты находятся в блоках .post или тегах article
+  item_list = soup.select("article, .post")
   print(f"Найдено элементов постов на странице: {len(item_list)}")
 
   for item in item_list[:3]:
-    title_el = item.select_one("h2 a, h3 a, .entry-title a, h2, h3")
+    title_el = item.select_one("h2 a, h3 a, .entry-title a")
     link_el = item.select_one("a")
     if not title_el or not link_el:
       continue
@@ -141,7 +141,7 @@ def parse_articles(base_pages_url):
       continue
 
     content_block = art_soup.select_one(
-        ".entry-content, .post-content, .content"
+        ".entry-content, .post-content"
     ) or art_soup.select_one("body")
 
     images = []
@@ -278,8 +278,8 @@ def save_rss(articles, filename, base_pages_url):
 if __name__ == "__main__":
   gh_repo = os.environ.get("GITHUB_REPOSITORY", "hoppp666/beuty")
   parts = gh_repo.split("/")
-  owner = parts
-  repo = parts if len(parts) > 1 else "beuty"
+  owner = parts[0]
+  repo = parts[1] if len(parts) > 1 else "beuty"
   pages_url = f"https://{owner}.github.io/{repo}/"
 
   print(f"GitHub Pages URL: {pages_url}")
