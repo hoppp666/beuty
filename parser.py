@@ -117,7 +117,12 @@ def parse_articles(base_pages_url):
       "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
   }
   print(f"Запрос к {TARGET_URL}...")
-  response = requests.get(TARGET_URL, headers=headers)
+  try:
+    response = requests.get(TARGET_URL, headers=headers, timeout=10)
+  except Exception as e:
+    print(f"Ошибка соединения с главным сайтом: {e}")
+    return []
+
   print(f"Статус ответа сайта: {response.status_code}")
 
   if response.status_code != 200:
@@ -144,17 +149,18 @@ def parse_articles(base_pages_url):
 
   print(f"Найдено уникальных ссылок на статьи: {len(found_links)}")
 
-  for link in list(found_links)[:3]:
+  # Обрабатываем по 1 статье за запуск во избежание таймаутов и зависаний
+  for link in list(found_links)[:1]:
     print(f"Обработка статьи: {link}")
 
     try:
-      art_resp = requests.get(link, headers=headers)
+      art_resp = requests.get(link, headers=headers, timeout=10)
       if art_resp.status_code != 200:
         print(f"Не удалось открыть статью, статус: {art_resp.status_code}")
         continue
       art_soup = BeautifulSoup(art_resp.text, "html.parser")
     except Exception as e:
-      print(f"Ошибка запроса статьи: {e}")
+      print(f"Ошибка запроса статьи (таймаут/сеть): {e}")
       continue
 
     title_el = art_soup.select_one("h1") or art_soup.select_one("title")
