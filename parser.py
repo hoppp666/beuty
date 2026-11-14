@@ -27,32 +27,40 @@ def generate_ai_article(model_name, magazine, description_hint):
         " #fashion #editorial #vogue"
     )
 
+  # Промпт настроен на легкий слог живого блогера и добавление интересных фактов
   prompt = (
-      f"Напиши короткую, живую и увлекательную статью на русском языке"
-      f" (примерно 1000-1200 символов) для бьюти-сообщества ВКонтакте. Опиши"
-      f" образ, эстетику и настроение новой фотосессии, где главная звезда —"
-      f" {model_name}, а съемка вышла в журнале {magazine}."
-      f" Контекст/детали: {description_hint}."
-      " Пиши профессионально, но легко, на чистом русском языке, без банальных"
-      " клише и канцелярита."
-      " В самом конце текста обязательно добавь 5-6 актуальных и популярных"
-      " хештегов на тему бьюти, моды и фотосессий (например: #beauty #fashion"
-      " #editorial #makeup #style)."
+      f"Напиши живой, увлекательный и легкий пост-статью на русском языке"
+      f" (примерно 1100-1300 символов) для модного бьюти-сообщества ВКонтакте."
+      f" Расскажи про новую фотосессию, где главная звезда — {model_name},"
+      f" а съемка вышла в журнале {magazine}."
+      f" Контекст/детали из статьи: {description_hint}."
+      " Пиши так, будто ты увлеченный фэшн-инсайдер: без сухого канцелярита"
+      " и банальных клише, с душой и вкусом."
+      " Обязательно органично вплени в текст 1-2 интересных факта (например,"
+      " о карьере модели, истории бренда, концепции фотографа или стиле"
+      " съемки), чтобы читателю было действительно любопытно."
+      " В самом конце текста обязательно добавь 5-6 актуальных хештегов на"
+      " тему моды, бьюти и стиля (например: #beauty #fashion #editorial #style"
+      " #vogue)."
   )
 
-  try:
-    response = client.models.generate_content(
-        model="gemini-3.8-flash",
-        contents=prompt,
-    )
-    return response.text.strip()
-  except Exception as e:
-    print(f"Ошибка генерации текста через AI: {e}")
-    return (
-        f"Яркая бьюти-история: {model_name} в новом выпуске {magazine}. Элегантные"
-        " образы и вдохновляющие детали макияжа.\n\n#beauty #fashion"
-        " #editorial #makeup #style"
-    )
+  for attempt in range(2):
+    try:
+      response = client.models.generate_content(
+          model="gemini-1.5-flash",
+          contents=prompt,
+      )
+      if response and response.text:
+        return response.text.strip()
+    except Exception as e:
+      print(f"Попытка {attempt + 1} не удалась (ошибка AI): {e}")
+      time.sleep(2)
+
+  return (
+      f"Яркая бьюти-история: {model_name} в новом выпуске {magazine}. Элегантные"
+      " образы, вдохновляющие детали и безупречный стиль.\n\n#beauty #fashion"
+      " #editorial #makeup #style"
+  )
 
 
 def download_and_save_image(img_url, save_dir, base_pages_url):
