@@ -46,7 +46,7 @@ def generate_ai_article(model_name, magazine, description_hint):
   for attempt in range(2):
     try:
       response = client.models.generate_content(
-          model="gemini-2.0-flash",
+          model="gemini-2.5-flash",
           contents=prompt,
       )
       if response and response.text:
