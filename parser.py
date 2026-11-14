@@ -12,14 +12,12 @@ BASE_DOMAIN = "https://anneofcarversville.com"
 HISTORY_FILE = "posted.json"
 MAX_HISTORY = 100
 
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 VK_TOKEN = os.environ.get("VK_TOKEN")
 RAW_GROUP_ID = os.environ.get("VK_GROUP_ID", "").lstrip("-")
 
 print(f"[{time.strftime('%H:%M:%S')}] Инициализация скрипта...")
-print(
-    f"OPENROUTER_API_KEY найден: {'Да' if OPENROUTER_API_KEY else 'НЕТ!'}"
-)
+print(f"GEMINI_API_KEY найден: {'Да' if GEMINI_API_KEY else 'НЕТ!'}")
 print(f"VK_TOKEN найден: {'Да' if VK_TOKEN else 'НЕТ!'}")
 print(f"VK_GROUP_ID найден: {RAW_GROUP_ID if RAW_GROUP_ID else 'НЕТ!'}")
 
@@ -39,104 +37,93 @@ def save_history(history):
     json.dump(history[-MAX_HISTORY:], f, ensure_ascii=False, indent=2)
 
 
-def ask_openrouter(prompt, system_prompt):
-  if not OPENROUTER_API_KEY:
-    print("OPENROUTER_API_KEY не задан.")
+def ask_gemini(prompt):
+  if not GEMINI_API_KEY:
+    print("GEMINI_API_KEY не задан.")
     return None
 
-  headers = {
-      "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-      "Content-Type": "application/json",
-      "HTTP-Referer": "https://github.com/vk-beauty-autopost",
-      "X-Title": "VK Beauty Editorial Bot",
-  }
+  # Официальный эндпоинт Google Gemini API
+  url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
 
-  free_models = [
-      "meta-llama/llama-3.3-70b-instruct:free",
-      "qwen/qwen-2.5-72b-instruct:free",
-      "google/gemma-2-27b-it:free",
-  ]
+  headers = {"Content-Type": "application/json"}
+  payload = {"contents": [{"parts": [{"text": prompt}]}]}
 
-  for model_name in free_models:
-    payload = {
-        "model": model_name,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ],
-    }
-
-    for attempt in range(1, 3):
-      try:
-        print(
-            f"[{time.strftime('%H:%M:%S')}] Запрос к OpenRouter ({model_name},"
-            f" попытка {attempt}/2)..."
-        )
-        response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=35,
-        )
-        if response.status_code == 200:
-          res_json = response.json()
-          if "choices" in res_json and len(res_json["choices"]) > 0:
-            result_text = res_json["choices"][0]["message"]["content"].strip()
-            return result_text
-        else:
-          print(
-              f"[{time.strftime('%H:%M:%S')}] Ошибка API"
-              f" {response.status_code}: {response.text[:150]}"
+  for attempt in range(1, 4):
+    try:
+      print(
+          f"[{time.strftime('%H:%M:%S')}] Запрос к Gemini (попытка"
+          f" {attempt}/3)..."
+      )
+      response = requests.post(
+          url, headers=headers, json=payload, timeout=35
+      )
+      if response.status_code == 200:
+        res_json = response.json()
+        candidates = res_json.get("candidates", [])
+        if candidates:
+          text = (
+              candidates[0]
+              .get("content", {})
+              .get("parts", [{}])[0]
+              .get("text", "")
+              .strip()
           )
-      except Exception as e:
-        print(f"[{time.strftime('%H:%M:%S')}] Исключение сети: {e}")
+          if text:
+            return text
+      else:
+        print(
+            f"[{time.strftime('%H:%M:%S')}] Ошибка API Gemini"
+            f" {response.status_code}: {response.text[:150]}"
+        )
+    except Exception as e:
+      print(f"[{time.strftime('%H:%M:%S')}] Исключение сети Gemini: {e}")
 
-      time.sleep(2)
+    time.sleep(3)
 
   return None
 
 
 def generate_russian_title(original_title):
-  system_prompt = (
-      "You are a professional fashion journalist. Translate the given English"
-      " article title into fluent, elegant, and catchy Russian suitable for a"
-      " high-end fashion magazine community. Return ONLY the translated title"
-      " without any extra quotes or text."
+  prompt = (
+      "Translate and adapt the following English article title into fluent,"
+      " elegant, and catchy Russian suitable for a high-end fashion and beauty"
+      " magazine community. Return ONLY the translated title without any"
+      f" extra quotes or explanations:\n\n{original_title}"
   )
-  prompt = f"Translate and adapt this title into Russian: {original_title}"
 
-  translated = ask_openrouter(prompt, system_prompt)
+  translated = ask_gemini(prompt)
   if translated:
     return translated.replace('"', "").replace("'", "")
   return original_title
 
 
-def generate_openrouter_article(article_title, full_context):
-  system_prompt = (
-      "You are a professional Russian-language fashion journalist and editor."
-      " Always write, translate, and adapt all content strictly in fluent,"
-      " engaging, and professional Russian."
-  )
-
+def generate_gemini_article(article_title, full_context):
   prompt = (
       "⚠️ СТРОГОЕ ПРАВИЛО: Весь текст статьи, описания образов, бэкграунд-факты"
       " и хештеги должны быть НАПИСАНЫ ИСКЛЮЧИТЕЛЬНО НА РУССКОМ ЯЗЫКЕ.\n\n"
-      f"Напиши полноценную, увлекательную и информативную новость-статью на русском языке объемом 1500–2000 символов по мотивам съемки: '{article_title}'.\n\n"
+      "Ты — главный редактор глянцевого модного и бьюти-издания. Напиши"
+      " полноценную, увлекательную и информативную новость-статью на русском"
+      f" языке объемом 1500–2000 символов по мотивам съемки: '{article_title}'.\n\n"
       f"Исходный текст и детали со страницы: {full_context}\n\n"
       "Требования к статье:\n"
-      "1. Начни с яркого, цепляющего вступления, которое сразу погружает в атмосферу съемки (модель, фотограф, издание и настроение кадров).\n"
-      "2. Подробно опиши визуальную концепцию, бьюти-образы (макияж, укладки), стилистику одежды и ключевые бренды.\n"
-      "3. ОБЯЗАТЕЛЬНО добавь 2–3 интересных бэкграунд-факта: о карьере модели, почерке фотографа или истории журнала.\n"
+      "1. Начни с яркого, цепляющего вступления, которое сразу погружает в"
+      " атмосферу съемки (модель, фотограф, издание и настроение кадров).\n"
+      "2. Подробно опиши визуальную концепцию, бьюти-образы (макияж, укладки),"
+      " стилистику одежды и ключевые бренды.\n"
+      "3. ОБЯЗАТЕЛЬНО добавь 2–3 интересных бэкграунд-факта: о карьере модели,"
+      " почерке фотографа или истории журнала.\n"
       "4. Пиши живым журнальным языком, разбей текст на 4–5 логичных абзацев.\n"
-      "5. НЕ используй Markdown-разметку (никаких звездочек **, решеток # для заголовков или тире для списков).\n"
-      "6. В самом конце с новой строки добавь 6–7 релевантных хештегов (например: #beauty #fashion #editorial #стиль #мода #vogue)."
+      "5. НЕ используй Markdown-разметку (никаких звездочек **, решеток # для"
+      " заголовков или тире для списков).\n"
+      "6. В самом конце с новой строки добавь 6–7 релевантных хештегов"
+      " (например: #beauty #fashion #editorial #стиль #мода #vogue)."
   )
 
-  ai_text = ask_openrouter(prompt, system_prompt)
+  ai_text = ask_gemini(prompt)
   if ai_text:
     return ai_text
 
-  print("Не удалось получить текст от OpenRouter, используем резерв.")
+  print("Не удалось получить текст от Gemini, используем резервный вариант.")
   return (
       f"Яркая бьюти-история: {article_title}.\n\n"
       f"{full_context[:800]}...\n\n"
@@ -318,7 +305,7 @@ def run():
         f" {len(full_context)} символов."
     )
 
-    ai_text = generate_openrouter_article(
+    ai_text = generate_gemini_article(
         article_title=raw_title, full_context=full_context
     )
 
