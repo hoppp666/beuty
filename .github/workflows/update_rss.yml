@@ -1,8 +1,8 @@
 - name: Run parser and post to VK
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          VK_TOKEN: ${{ secrets.VK_TOKEN }}
-          VK_GROUP_ID: ${{ secrets.VK_GROUP_ID }}
+      env:
+  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+  VK_TOKEN: ${{ secrets.VK_TOKEN }}
+  VK_GROUP_ID: ${{ secrets.VK_GROUP_ID }}
         run: |
           source venv/bin/activate
           python parser.py
