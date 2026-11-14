@@ -256,6 +256,11 @@ def cleanup_temp_images():
 
 def run():
   history = load_history()
+  print(
+      f"[{time.strftime('%H:%M:%S' )}] Загружена история, записей в"
+      f" posted.json: {len(history)}"
+  )
+
   headers = {
       "User-Agent": (
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
@@ -283,8 +288,13 @@ def run():
 
   print(
       f"[{time.strftime('%H:%M:%S' )}] Главная страница загружена,"
-      " парсим ссылки на статьи..."
+      f" размер ответа: {len(response.text)} символов"
   )
+  print(
+      f"[{time.strftime('%H:%M:%S' )}] Превью ответа:"
+      f" {response.text[:200].strip()}"
+  )
+
   soup = BeautifulSoup(response.text, "html.parser")
   found_links = []
   for a in soup.find_all("a", href=True):
@@ -335,3 +345,67 @@ def run():
   title = title_el.get_text(strip=True) if title_el else "Beauty Editorial"
   title = title.split("|")[0].split("-")[0].strip()
   print(f"[{time.strftime('%H:%M:%S' )}] Заголовок статьи: {title}")
+
+  content_block = art_soup.select_one(
+      "article, .entry-content, .post-body, .content"
+  ) or art_soup.select_one("body")
+
+  image_paths = []
+  seen_urls = set()
+  for img in content_block.find_all("img"):
+    src = (
+        img.get("data-src") or img.get("data-original") or img.get("src") or ""
+    )
+    if src and "data:image" not in src:
+      if not src.startswith("http"):
+        src = BASE_DOMAIN + src
+      if (
+          "avatar" not in src
+          and "logo" not in src
+          and "icon" not in src
+          and src not in seen_urls
+      ):
+        seen_urls.add(src)
+        local_path = download_temp_image(src)
+        if local_path:
+          image_paths.append(local_path)
+        if len(image_paths) >= 9:
+          break
+
+  print(
+      f"[{time.strftime('%H:%M:%S' )}] Успешно скачано локальных фото:"
+      f" {len(image_paths)}"
+  )
+  if not image_paths:
+    print("Нет подходящих картинок, пропускаем статью.")
+    cleanup_temp_images()
+    return
+
+  paragraphs = [
+      p.get_text(strip=True)
+      for p in content_block.find_all("p")
+      if len(p.get_text(strip=True)) > 40
+  ]
+  context_hint = " ".join(paragraphs[:2])[:600] if paragraphs else title
+
+  magazine_hint = (
+      title if "Vogue" in title or "Elle" in title else "модном журнале"
+  )
+  ai_text = generate_ai_article(
+      model_name=title, magazine=magazine_hint, description_hint=context_hint
+  )
+
+  success = publish_post_to_vk(title, ai_text, image_paths, link)
+  if success:
+    history.append(link)
+    save_history(history)
+    print(
+        f"[{time.strftime('%H:%M:%S' )}] Ссылка добавлена в историю posted.json."
+    )
+
+  cleanup_temp_images()
+  print(f"[{time.strftime('%H:%M:%S' )}] Работа скрипта успешно завершена.")
+
+
+if __name__ == "__main__":
+  run()
