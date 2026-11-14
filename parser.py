@@ -14,7 +14,7 @@ MAX_HISTORY = 100
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 VK_TOKEN = os.environ.get("VK_TOKEN")
-# Убираем минус, если вы случайно ввели его в секретах — скрипт сам расставит знаки правильно
+# Убираем минус, если случайно ввели его в секретах
 RAW_GROUP_ID = os.environ.get("VK_GROUP_ID", "").lstrip("-")
 
 print(f"GEMINI_API_KEY найден: {'Да' if GEMINI_API_KEY else 'НЕТ!'}")
@@ -109,9 +109,7 @@ def download_temp_image(img_url):
 
 
 def upload_photo_to_vk(filepath):
-  """Загружает одно фото на сервер ВК и возвращает строку вида photo123_456"""
   try:
-    # 1. Получаем адрес сервера для загрузки фото на стену группы
     res = requests.get(
         "https://api.vk.com/method/photos.getWallUploadServer",
         params={
@@ -128,13 +126,11 @@ def upload_photo_to_vk(filepath):
 
     upload_url = res["response"]["upload_url"]
 
-    # 2. Отправляем файл картинки на полученный URL
     with open(filepath, "rb") as f:
       upload_res = requests.post(
           upload_url, files={"photo": f}, timeout=15
       ).json()
 
-    # 3. Сохраняем загруженное фото в альбоме стены группы
     save_res = requests.post(
         "https://api.vk.com/method/photos.saveWallPhoto",
         data={
@@ -172,7 +168,7 @@ def publish_post_to_vk(title, text, image_paths, source_link):
     att = upload_photo_to_vk(path)
     if att:
       attachments.append(att)
-    time.sleep(0.5)  # Небольшая пауза, чтобы не превысить лимиты запросов VK API
+    time.sleep(0.5)
 
   if not attachments:
     print("Не удалось загрузить ни одного фото в VK, отменяем пост.")
@@ -180,14 +176,18 @@ def publish_post_to_vk(title, text, image_paths, source_link):
 
   full_message = f"{title}\n\n{text}\n\nИсточник: {source_link}"
 
+  # Публикация в отложенные записи ровно через 2 часа (7200 секунд)
+  future_time = int(time.time()) + 7200
+
   try:
     post_res = requests.post(
         "https://api.vk.com/method/wall.post",
         data={
-            "owner_id": -int(RAW_GROUP_ID),  # Для стены группы нужен минус!
-            "from_group": 1,  # Публиковать от имени сообщества
+            "owner_id": -int(RAW_GROUP_ID),  # Для стены группы нужен минус
+            "from_group": 1,
             "message": full_message,
             "attachments": ",".join(attachments),
+            "publish_date": future_time,  # Отправка в отложенные
             "access_token": VK_TOKEN,
             "v": "5.199",
         },
@@ -195,11 +195,13 @@ def publish_post_to_vk(title, text, image_paths, source_link):
     ).json()
 
     if "error" in post_res:
-      print(f"Ошибка публикации поста в VK: {post_res['error']}")
+      print(f"Ошибка сохранения отложенного поста в VK: {post_res['error']}")
       return False
 
     post_id = post_res["response"]["post_id"]
-    print(f"УСПЕХ! Пост опубликован на стене группы (ID поста: {post_id})")
+    print(
+        f"УСПЕХ! Пост сохранен в отложенные записи VK (ID записи: {post_id})"
+    )
     return True
 
   except Exception as e:
@@ -264,7 +266,6 @@ def run():
     print("Новых статей для публикации пока нет.")
     return
 
-  # Берем 1 самую свежую неопубликованную статью за запуск
   link = found_links[0]
   print(f"Обработка статьи: {link}")
 
@@ -305,7 +306,7 @@ def run():
         local_path = download_temp_image(src)
         if local_path:
           image_paths.append(local_path)
-        if len(image_paths) >= 9:  # ВКонтакте позволяет прикрепить до 10 фото
+        if len(image_paths) >= 9:
           break
 
   print(f"Скачано фото для загрузки в VK: {len(image_paths)}")
@@ -314,7 +315,6 @@ def run():
     cleanup_temp_images()
     return
 
-  # Берем первые пару абзацев оригинала как подсказку для нейросети, чтобы текст был точнее
   paragraphs = [
       p.get_text(strip=True)
       for p in content_block.find_all("p")
