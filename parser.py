@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 from google import genai
 import requests
 
-TARGET_URL = "https://anneofcarversville.com/beauty"
+TARGET_URL = "https://anneofcarversville.com/"
 BASE_DOMAIN = "https://anneofcarversville.com"
 FEED_FILENAME = "feed.xml"
 IMAGES_DIR = "images"
