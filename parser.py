@@ -1,10 +1,17 @@
+import time
+
+print(
+    f"[{time.strftime('%H:%M:%S' )}] Скрипт запущен, импортируем библиотеки..."
+)
+
 from datetime import datetime
 import json
 import os
-import time
 from bs4 import BeautifulSoup
 from google import genai
 import requests
+
+print(f"[{time.strftime('%H:%M:%S' )}] Библиотеки успешно импортированы.")
 
 TARGET_URL = "https://anneofcarversville.com/"
 BASE_DOMAIN = "https://anneofcarversville.com"
