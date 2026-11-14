@@ -1,33 +1,27 @@
-import time
-
-print(
-    f"[{time.strftime('%H:%M:%S' )}] Скрипт запущен, импортируем библиотеки..."
-)
-
 from datetime import datetime
 import json
 import os
+import time
 from bs4 import BeautifulSoup
-from google import genai
 import requests
 
-print(f"[{time.strftime('%H:%M:%S' )}] Библиотеки успешно импортированы.")
+print(f"[{time.strftime('%H:%M:%S')}] Скрипт запущен...")
 
 TARGET_URL = "https://anneofcarversville.com/"
 BASE_DOMAIN = "https://anneofcarversville.com"
 HISTORY_FILE = "posted.json"
 MAX_HISTORY = 100
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 VK_TOKEN = os.environ.get("VK_TOKEN")
 RAW_GROUP_ID = os.environ.get("VK_GROUP_ID", "").lstrip("-")
 
-print(f"[{time.strftime('%H:%M:%S' )}] Инициализация скрипта...")
-print(f"GEMINI_API_KEY найден: {'Да' if GEMINI_API_KEY else 'НЕТ!'}")
+print(f"[{time.strftime('%H:%M:%S')}] Инициализация скрипта...")
+print(
+    f"OPENROUTER_API_KEY найден: {'Да' if OPENROUTER_API_KEY else 'НЕТ!'}"
+)
 print(f"VK_TOKEN найден: {'Да' if VK_TOKEN else 'НЕТ!'}")
 print(f"VK_GROUP_ID найден: {RAW_GROUP_ID if RAW_GROUP_ID else 'НЕТ!'}")
-
-client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 
 def load_history():
@@ -45,11 +39,13 @@ def save_history(history):
     json.dump(history[-MAX_HISTORY:], f, ensure_ascii=False, indent=2)
 
 
-def generate_ai_article(article_title, full_context):
-  if not client:
+def generate_openrouter_article(article_title, full_context):
+  if not OPENROUTER_API_KEY:
+    print("OPENROUTER_API_KEY не задан, используем базовый текст.")
     return (
-        f"Новая модная съемка: {article_title}.\n\n{full_context[:500]}...\n\n#beauty"
-        " #fashion #editorial #vogue"
+        f"Новая модная фотосессия: {article_title}.\n\n"
+        f"{full_context[:600]}...\n\n"
+        "#beauty #fashion #editorial #vogue #style"
     )
 
   prompt = (
@@ -59,7 +55,7 @@ def generate_ai_article(article_title, full_context):
       f"Тема и заголовок съемки: {article_title}\n"
       f"Исходный текст и детали со страницы: {full_context}\n\n"
       "Требования к статье:\n"
-      "1. Начни с яркого, цепляющего вступления (лида), которое сразу погружает в"
+      "1. Начни с яркого, цепляющего вступления, которое сразу погружает в"
       " атмосферу съемки (укажи модель, фотографа, издание и настроение"
       " кадров, если они есть в исходном тексте).\n"
       "2. Подробно опиши визуальную концепцию, бьюти-образы (макияж, укладки),"
@@ -77,42 +73,65 @@ def generate_ai_article(article_title, full_context):
       " (например: #beauty #fashion #editorial #style #vogue #model #photoshoot)."
   )
 
-  # Список моделей по приоритету на случай, если одна из них перегружена или недоступна
-  models_to_try = [
-      "gemini-3.8-flash",
-      "gemini-2.5-pro",
-      "gemini-2.5-flash",
-      "gemini-2.0-flash",
+  headers = {
+      "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://github.com/vk-beauty-autopost",
+      "X-Title": "VK Beauty Editorial Bot",
+  }
+
+  # Бесплатные модели по приоритету
+  free_models = [
+      "meta-llama/llama-3.3-70b-instruct:free",
+      "qwen/qwen-2.5-72b-instruct:free",
+      "google/gemma-2-27b-it:free",
   ]
 
-  for model_name in models_to_try:
+  for model_name in free_models:
     print(
-        f"[{time.strftime('%H:%M:%S' )}] Отправка запроса к Gemini ({model_name})..."
+        f"[{time.strftime('%H:%M:%S')}] Отправка запроса к OpenRouter"
+        f" ({model_name})..."
     )
+    payload = {
+        "model": model_name,
+        "messages": [{"role": "user", "content": prompt}],
+    }
     try:
-      response = client.models.generate_content(
-          model=model_name,
-          contents=prompt,
+      response = requests.post(
+          "https://openrouter.ai/api/v1/chat/completions",
+          headers=headers,
+          json=payload,
+          timeout=35,
       )
-      if response and response.text:
+      if response.status_code == 200:
+        res_json = response.json()
+        if "choices" in res_json and len(res_json["choices"]) > 0:
+          ai_text = res_json["choices"][0]["message"]["content"].strip()
+          print(
+              f"[{time.strftime('%H:%M:%S')}] Статья успешно сгенерирована"
+              f" моделью {model_name} (длина: {len(ai_text)} симв.)."
+          )
+          return ai_text
+      else:
         print(
-            f"[{time.strftime('%H:%M:%S' )}] Статья успешно сгенерирована"
-            f" моделью {model_name} (длина: {len(response.text)} симв.)."
+            f"[{time.strftime('%H:%M:%S')}] Модель {model_name} вернула статус"
+            f" {response.status_code}: {response.text[:200]}"
         )
-        return response.text.strip()
     except Exception as e:
       print(
-          f"[{time.strftime('%H:%M:%S' )}] Модель {model_name} не ответила: {e}"
+          f"[{time.strftime('%H:%M:%S')}] Исключение при запросе к"
+          f" {model_name}: {e}"
       )
-      time.sleep(1)
+    time.sleep(1.5)
 
   print(
-      f"[{time.strftime('%H:%M:%S' )}] Все модели AI недоступны, формируем"
-      " расширенный текст из исходника."
+      f"[{time.strftime('%H:%M:%S')}] Бесплатные модели временно перегружены,"
+      " используем расширенный исходный текст."
   )
   return (
-      f"Новая фотосессия: {article_title}.\n\n{full_context[:900]}...\n\n#beauty"
-      " #fashion #editorial #makeup #style #photoshoot"
+      f"Новая фотосессия: {article_title}.\n\n"
+      f"{full_context[:800]}...\n\n"
+      "#beauty #fashion #editorial #makeup #style #photoshoot"
   )
 
 
@@ -126,7 +145,7 @@ def publish_post_to_vk(title, text, source_link):
 
   try:
     print(
-        f"[{time.strftime('%H:%M:%S' )}] Отправка отложенного поста в VK"
+        f"[{time.strftime('%H:%M:%S')}] Отправка отложенного поста в VK"
         " (wall.post)..."
     )
     post_res = requests.post(
@@ -148,18 +167,17 @@ def publish_post_to_vk(title, text, source_link):
 
     post_id = post_res["response"]["post_id"]
     print(
-        f"[{time.strftime('%H:%M:%S' )}] УСПЕХ! Пост сохранен в отложенные"
+        f"[{time.strftime('%H:%M:%S')}] УСПЕХ! Пост сохранен в отложенные"
         f" записи VK (ID: {post_id})"
     )
     return True
 
   except Exception as e:
-    print(f"[{time.strftime('%H:%M:%S' )}] Исключение при вызове wall.post: {e}")
+    print(f"[{time.strftime('%H:%M:%S')}] Исключение при вызове wall.post: {e}")
     return False
 
 
 def extract_article_title(art_soup, url):
-  # Ищем реальный заголовок статьи на Squarespace (игнорируя логотип сайта)
   selectors = [
       "h1.entry-title",
       "article h1",
@@ -171,13 +189,16 @@ def extract_article_title(art_soup, url):
     el = art_soup.select_one(sel)
     if el:
       raw_title = (
-          el.get("content", "") if el.name == "meta" else el.get_text(strip=True)
+          el.get("content", "")
+          if el.name == "meta"
+          else el.get_text(strip=True)
       )
-      clean_title = raw_title.split("— Anne of Carversville")[0].split("|")[0].strip()
+      clean_title = (
+          raw_title.split("— Anne of Carversville")[0].split("|")[0].strip()
+      )
       if clean_title and clean_title.lower() != "anne of carversville":
         return clean_title
 
-  # Если заголовок не найден в тегах, берем его прямо из красивого URL статьи
   slug = url.rstrip("/").split("/")[-1]
   return slug.replace("-", " ").title()
 
@@ -185,31 +206,31 @@ def extract_article_title(art_soup, url):
 def run():
   history = load_history()
   print(
-      f"[{time.strftime('%H:%M:%S' )}] Загружена история, записей в"
+      f"[{time.strftime('%H:%M:%S')}] Загружена история, записей в"
       f" posted.json: {len(history)}"
   )
 
   headers = {
       "User-Agent": (
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
-          " like Gecko) Chrome/120.0.0.0 Safari/537.36"
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+          " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
       ),
       "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
   }
 
-  print(f"[{time.strftime('%H:%M:%S' )}] Запрос главной страницы {TARGET_URL}...")
+  print(f"[{time.strftime('%H:%M:%S')}] Запрос главной страницы {TARGET_URL}...")
   try:
     response = requests.get(TARGET_URL, headers=headers, timeout=10)
   except Exception as e:
     print(
-        f"[{time.strftime('%H:%M:%S' )}] Ошибка соединения с сайтом-источником:"
+        f"[{time.strftime('%H:%M:%S')}] Ошибка соединения с сайтом-источником:"
         f" {e}"
     )
     return
 
   if response.status_code != 200:
     print(
-        f"[{time.strftime('%H:%M:%S' )}] Сайт вернул неожиданный статус:"
+        f"[{time.strftime('%H:%M:%S')}] Сайт вернул неожиданный статус:"
         f" {response.status_code}"
     )
     return
@@ -235,16 +256,16 @@ def run():
         found_links.append(clean_link)
 
   print(
-      f"[{time.strftime('%H:%M:%S' )}] Найдено новых неопубликованных статей:"
+      f"[{time.strftime('%H:%M:%S')}] Найдено новых неопубликованных статей:"
       f" {len(found_links)}"
   )
 
   if not found_links:
-    print(f"[{time.strftime('%H:%M:%S' )}] Новых статей для публикации нет.")
+    print(f"[{time.strftime('%H:%M:%S')}] Новых статей для публикации нет.")
     return
 
   link = found_links[0]
-  print(f"[{time.strftime('%H:%M:%S' )}] Выбрана статья для обработки: {link}")
+  print(f"[{time.strftime('%H:%M:%S')}] Выбрана статья для обработки: {link}")
 
   try:
     art_resp = requests.get(link, headers=headers, timeout=10)
@@ -257,7 +278,7 @@ def run():
     return
 
   title = extract_article_title(art_soup, link)
-  print(f"[{time.strftime('%H:%M:%S' )}] Реальный заголовок статьи: {title}")
+  print(f"[{time.strftime('%H:%M:%S')}] Реальный заголовок статьи: {title}")
 
   content_block = art_soup.select_one(
       "article, .entry-content, .post-body, .sqs-block-content"
@@ -268,24 +289,25 @@ def run():
       for p in content_block.find_all("p")
       if len(p.get_text(strip=True)) > 30
   ]
-  # Забираем до 3000 символов исходного текста, чтобы AI получил максимум деталей
   full_context = "\n".join(paragraphs)[:3000] if paragraphs else title
   print(
-      f"[{time.strftime('%H:%M:%S' )}] Собрано текста со страницы:"
+      f"[{time.strftime('%H:%M:%S')}] Собрано текста со страницы:"
       f" {len(full_context)} символов."
   )
 
-  ai_text = generate_ai_article(article_title=title, full_context=full_context)
+  ai_text = generate_openrouter_article(
+      article_title=title, full_context=full_context
+  )
 
   success = publish_post_to_vk(title, ai_text, link)
   if success:
     history.append(link)
     save_history(history)
     print(
-        f"[{time.strftime('%H:%M:%S' )}] Ссылка добавлена в историю posted.json."
+        f"[{time.strftime('%H:%M:%S')}] Ссылка добавлена в историю posted.json."
     )
 
-  print(f"[{time.strftime('%H:%M:%S' )}] Работа скрипта успешно завершена.")
+  print(f"[{time.strftime('%H:%M:%S')}] Работа скрипта успешно завершена.")
 
 
 if __name__ == "__main__":
