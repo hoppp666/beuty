@@ -7,8 +7,8 @@ import requests
 
 print(f"[{time.strftime('%H:%M:%S')}] Скрипт запущен...")
 
-TARGET_URL = "https://anneofcarversville.com/"
-BASE_DOMAIN = "https://anneofcarversville.com"
+TARGET_URL = "https://www.fashioneditorials.com/"
+BASE_DOMAIN = "https://www.fashioneditorials.com"
 HISTORY_FILE = "posted.json"
 MAX_HISTORY = 100
 
