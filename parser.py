@@ -69,24 +69,22 @@ def generate_ai_article(model_name, magazine, description_hint):
       f"[{time.strftime('%H:%M:%S' )}] Отправка запроса к Gemini API для"
       " генерации текста..."
   )
-  for attempt in range(2):
-    try:
-      response = client.models.generate_content(
-          model="gemini-3.8-flash",
-          contents=prompt,
-      )
-      if response and response.text:
-        print(
-            f"[{time.strftime('%H:%M:%S' )}] Текст успешно сгенерирован"
-            " нейросетью."
-        )
-        return response.text.strip()
-    except Exception as e:
+  try:
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
+    )
+    if response and response.text:
       print(
-          f"[{time.strftime('%H:%M:%S' )}] Попытка {attempt + 1} генерации AI"
-          f" не удалась: {e}"
+          f"[{time.strftime('%H:%M:%S' )}] Текст успешно сгенерирован"
+          " нейросетью."
       )
-      time.sleep(2)
+      return response.text.strip()
+  except Exception as e:
+    print(
+        f"[{time.strftime('%H:%M:%S' )}] Ошибка Gemini API: {e}."
+        " Используем запасной текст."
+    )
 
   return (
       f"Яркая бьюти-история: {model_name} в новом выпуске {magazine}. Элегантные"
@@ -306,9 +304,7 @@ def run():
   )
 
   if not found_links:
-    print(
-        f"[{time.strftime('%H:%M:%S' )}] Новых статей для публикации нет."
-    )
+    print(f"[{time.strftime('%H:%M:%S' )}] Новых статей для публикации нет.")
     return
 
   link = found_links[0]
@@ -332,67 +328,3 @@ def run():
   title = title_el.get_text(strip=True) if title_el else "Beauty Editorial"
   title = title.split("|")[0].split("-")[0].strip()
   print(f"[{time.strftime('%H:%M:%S' )}] Заголовок статьи: {title}")
-
-  content_block = art_soup.select_one(
-      "article, .entry-content, .post-body, .content"
-  ) or art_soup.select_one("body")
-
-  image_paths = []
-  seen_urls = set()
-  for img in content_block.find_all("img"):
-    src = (
-        img.get("data-src") or img.get("data-original") or img.get("src") or ""
-    )
-    if src and "data:image" not in src:
-      if not src.startswith("http"):
-        src = BASE_DOMAIN + src
-      if (
-          "avatar" not in src
-          and "logo" not in src
-          and "icon" not in src
-          and src not in seen_urls
-      ):
-        seen_urls.add(src)
-        local_path = download_temp_image(src)
-        if local_path:
-          image_paths.append(local_path)
-        if len(image_paths) >= 9:
-          break
-
-  print(
-      f"[{time.strftime('%H:%M:%S' )}] Успешно скачано локальных фото:"
-      f" {len(image_paths)}"
-  )
-  if not image_paths:
-    print("Нет подходящих картинок, пропускаем статью.")
-    cleanup_temp_images()
-    return
-
-  paragraphs = [
-      p.get_text(strip=True)
-      for p in content_block.find_all("p")
-      if len(p.get_text(strip=True)) > 40
-  ]
-  context_hint = " ".join(paragraphs[:2])[:600] if paragraphs else title
-
-  magazine_hint = (
-      title if "Vogue" in title or "Elle" in title else "модном журнале"
-  )
-  ai_text = generate_ai_article(
-      model_name=title, magazine=magazine_hint, description_hint=context_hint
-  )
-
-  success = publish_post_to_vk(title, ai_text, image_paths, link)
-  if success:
-    history.append(link)
-    save_history(history)
-    print(
-        f"[{time.strftime('%H:%M:%S' )}] Ссылка добавлена в историю posted.json."
-    )
-
-  cleanup_temp_images()
-  print(f"[{time.strftime('%H:%M:%S' )}] Работа скрипта успешно завершена.")
-
-
-if __name__ == "__main__":
-  run()
