@@ -1,7 +1,7 @@
 from datetime import datetime
 import os
 import time
-from bs4].text import BeautifulSoup  # type: ignore
+from bs4 import BeautifulSoup
 from google import genai
 import requests
 
