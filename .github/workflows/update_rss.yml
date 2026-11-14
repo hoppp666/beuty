@@ -1,6 +1,17 @@
+name: VK Beauty Autopost
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # Запуск каждый час
+  workflow_dispatch:     # Кнопка ручного запуска
+
 jobs:
   run-parser:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write # Требуется для сохранения posted.json в репозиторий
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -12,12 +23,20 @@ jobs:
 
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install requests beautifulsoup4
 
       - name: Run script
         env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           VK_TOKEN: ${{ secrets.VK_TOKEN }}
           VK_GROUP_ID: ${{ secrets.VK_GROUP_ID }}
         run: |
           python parser.py
+
+      - name: Commit and push updated history (posted.json)
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add posted.json
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update posted.json history [skip ci]" && git push)
