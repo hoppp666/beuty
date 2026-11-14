@@ -113,11 +113,12 @@ def parse_articles(base_pages_url):
   soup = BeautifulSoup(response.text, "html.parser")
   articles = []
 
-  item_list = soup.select("article")
-  print(f"Найдено тегов <article> на странице: {len(item_list)}")
+  # Ищем посты по универсальным классам WordPress (post, hentry) или тегу article
+  item_list = soup.select("article, .post, .entry")
+  print(f"Найдено элементов постов на странице: {len(item_list)}")
 
   for item in item_list[:3]:
-    title_el = item.select_one("h2") or item.select_one("h3")
+    title_el = item.select_one("h2 a, h3 a, .entry-title a, h2, h3")
     link_el = item.select_one("a")
     if not title_el or not link_el:
       continue
@@ -136,12 +137,12 @@ def parse_articles(base_pages_url):
         continue
       art_soup = BeautifulSoup(art_resp.text, "html.parser")
     except Exception as e:
-      print(f"Запрос к {TARGET_URL}...")
+      print(f"Ошибка запроса статьи: {e}")
       continue
 
-    content_block = art_soup.select_one(".entry-content") or art_soup.select_one(
-        "body"
-    )
+    content_block = art_soup.select_one(
+        ".entry-content, .post-content, .content"
+    ) or art_soup.select_one("body")
 
     images = []
     for img in content_block.find_all("img"):
@@ -176,7 +177,7 @@ def parse_articles(base_pages_url):
         if len(p.get_text(strip=True)) > 30
     ]
     p1 = paragraphs[0] if len(paragraphs) > 0 else ai_text
-    p2 (
+    p2 = (
         paragraphs[1]
         if len(paragraphs) > 1
         else "Детали бьюти-образа и работа команды стилистов."
@@ -275,10 +276,10 @@ def save_rss(articles, filename, base_pages_url):
 
 
 if __name__ == "__main__":
-  gh_repo = os.environ.get("GITHUB_REPOSITORY", "username/repo")
+  gh_repo = os.environ.get("GITHUB_REPOSITORY", "hoppp666/beuty")
   parts = gh_repo.split("/")
   owner = parts
-  repo = parts if len(parts) > 1 else "repo"
+  repo = parts if len(parts) > 1 else "beuty"
   pages_url = f"https://{owner}.github.io/{repo}/"
 
   print(f"GitHub Pages URL: {pages_url}")
