@@ -213,4 +213,124 @@ def run():
   }
 
   print(f"[{time.strftime('%H:%M:%S')}] Запрос главной страницы {TARGET_URL}...")
-  try
+  try:
+    response = requests.get(TARGET_URL, headers=headers, timeout=10)
+  except Exception as e:
+    print(
+        f"[{time.strftime('%H:%M:%S')}] Ошибка соединения с сайтом-источником:"
+        f" {e}"
+    )
+    return
+
+  if response.status_code != 200:
+    print(
+        f"[{time.strftime('%H:%M:%S')}] Сайт вернул неожиданный статус:"
+        f" {response.status_code}"
+    )
+    return
+
+  soup = BeautifulSoup(response.text, "html.parser")
+  found_links = []
+  for a in soup.find_all("a", href=True):
+    href = a["href"]
+    if (
+        "/2026/" in href
+        or "/2025/" in href
+        or "/post/" in href
+        or "/editorial/" in href
+    ):
+      if not href.startswith("http"):
+        href = BASE_DOMAIN + href
+      clean_link = href.split("#")[0]
+      if (
+          clean_link != TARGET_URL
+          and clean_link not in found_links
+          and clean_link not in history
+      ):
+        found_links.append(clean_link)
+
+  print(
+      f"[{time.strftime('%H:%M:%S')}] Найдено новых неопубликованных статей:"
+      f" {len(found_links)}"
+  )
+
+  if not found_links:
+    print(f"[{time.strftime('%H:%M:%S')}] Новых статей для публикации нет.")
+    return
+
+  BATCH_LIMIT = 2
+  target_links = found_links[:BATCH_LIMIT]
+  print(
+      f"[{time.strftime('%H:%M:%S')}] В текущем запуске будет обработано"
+      f" статей: {len(target_links)}"
+  )
+
+  base_delay_seconds = 7200
+  interval_between_posts = 10800
+
+  for index, link in enumerate(target_links):
+    print(f"\n--- Обработка статьи {index+1} из {len(target_links)}: {link} ---")
+
+    try:
+      art_resp = requests.get(link, headers=headers, timeout=10)
+      if art_resp.status_code != 200:
+        print(f"Не удалось открыть страницу статьи: {art_resp.status_code}")
+        continue
+      art_soup = BeautifulSoup(art_resp.text, "html.parser")
+    except Exception as e:
+      print(f"Ошибка загрузки статьи: {e}")
+      continue
+
+    raw_title = extract_article_title(art_soup, link)
+    print(f"[{time.strftime('%H:%M:%S')}] Оригинальный заголовок: {raw_title}")
+
+    title = generate_russian_title(raw_title)
+    print(
+        f"[{time.strftime('%H:%M:%S')}] Переведенный заголовок для ВК: {title}"
+    )
+
+    content_block = art_soup.select_one(
+        "article, .entry-content, .post-body, .sqs-block-content"
+    ) or art_soup.select_one("body")
+
+    paragraphs = []
+    if content_block:
+      for p in content_block.find_all("p"):
+        txt = p.get_text(" ", strip=True)
+        if len(txt) > 30:
+          paragraphs.append(txt)
+
+    full_context = "\n".join(paragraphs)[:3000] if paragraphs else title
+    print(
+        f"[{time.strftime('%H:%M:%S')}] Собрано текста со страницы:"
+        f" {len(full_context)} символов."
+    )
+
+    ai_text = generate_gemini_article(
+        article_title=raw_title, full_context=full_context
+    )
+
+    custom_publish_time = (
+        int(time.time())
+        + base_delay_seconds
+        + (index * interval_between_posts)
+    )
+
+    success = publish_post_to_vk_custom(
+        title, ai_text, link, custom_publish_time
+    )
+    if success:
+      history.append(link)
+      save_history(history)
+      print(
+          f"[{time.strftime('%H:%M:%S')}] Ссылка добавлена в историю"
+          " posted.json."
+      )
+
+    time.sleep(3)
+
+  print(f"\n[{time.strftime('%H:%M:%S')}] Работа скрипта успешно завершена.")
+
+
+if __name__ == "__main__":
+  run()
