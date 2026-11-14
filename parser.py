@@ -63,7 +63,7 @@ def download_and_save_image(img_url, save_dir, base_pages_url):
         )
     }
     r = requests.get(img_url, headers=headers, timeout=10)
-    if r.status_code == 200 and len(r.content) > 10000:  # отсекаем мелкие иконки
+    if r.status_code == 200 and len(r.content) > 10000:
       filename = (
           datetime.utcnow().strftime("%Y%m%d%H%M%S_")
           + str(abs(hash(img_url)) % 10000)
@@ -115,21 +115,25 @@ def parse_articles(base_pages_url):
   soup = BeautifulSoup(response.text, "html.parser")
   articles = []
 
-  item_list = soup.select("article, .post, .summary-item")
-  print(f"Найдено элементов постов на странице: {len(item_list)}")
+  found_links = set()
+  for a in soup.find_all("a", href=True):
+    href = a["href"]
+    if (
+        "/2026/" in href
+        or "/2025/" in href
+        or "/post/" in href
+        or "/editorial/" in href
+    ):
+      if not href.startswith("http"):
+        href = BASE_DOMAIN + href
+      clean_link = href.split("#")[0]
+      if clean_link != TARGET_URL and clean_link not in found_links:
+        found_links.add(clean_link)
 
-  for item in item_list[:3]:
-    title_el = item.select_one("h2 a, h3 a, .title a, h2, h3")
-    link_el = item.select_one("a")
-    if not title_el or not link_el:
-      continue
+  print(f"Найдено уникальных ссылок на статьи: {len(found_links)}")
 
-    title = title_el.get_text(strip=True)
-    link = link_el.get("href")
-    if not link.startswith("http"):
-      link = BASE_DOMAIN + link
-
-    print(f"Обработка статьи: {title} ({link})")
+  for link in list(found_links)[:3]:
+    print(f"Обработка статьи: {link}")
 
     try:
       art_resp = requests.get(link, headers=headers)
@@ -141,13 +145,16 @@ def parse_articles(base_pages_url):
       print(f"Ошибка запроса статьи: {e}")
       continue
 
+    title_el = art_soup.select_one("h1") or art_soup.select_one("title")
+    title = title_el.get_text(strip=True) if title_el else "Beauty Editorial"
+    title = title.split("|")[0].split("-")[0].strip()
+
     content_block = art_soup.select_one(
-        ".entry-content, .post-body, .content"
+        "article, .entry-content, .post-body, .content"
     ) or art_soup.select_one("body")
 
     images = []
     for img in content_block.find_all("img"):
-      # Проверяем разные атрибуты картинок (включая оригиналы и дата-атрибуты)
       src = (
           img.get("data-src")
           or img.get("data-original")
