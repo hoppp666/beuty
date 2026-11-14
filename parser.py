@@ -14,9 +14,9 @@ MAX_HISTORY = 100
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 VK_TOKEN = os.environ.get("VK_TOKEN")
-# Убираем минус, если случайно ввели его в секретах
 RAW_GROUP_ID = os.environ.get("VK_GROUP_ID", "").lstrip("-")
 
+print(f"[{time.strftime('%H:%M:%S' )}] Инициализация скрипта...")
 print(f"GEMINI_API_KEY найден: {'Да' if GEMINI_API_KEY else 'НЕТ!'}")
 print(f"VK_TOKEN найден: {'Да' if VK_TOKEN else 'НЕТ!'}")
 print(f"VK_GROUP_ID найден: {RAW_GROUP_ID if RAW_GROUP_ID else 'НЕТ!'}")
@@ -65,6 +65,10 @@ def generate_ai_article(model_name, magazine, description_hint):
       " #vogue)."
   )
 
+  print(
+      f"[{time.strftime('%H:%M:%S' )}] Отправка запроса к Gemini API для"
+      " генерации текста..."
+  )
   for attempt in range(2):
     try:
       response = client.models.generate_content(
@@ -72,9 +76,16 @@ def generate_ai_article(model_name, magazine, description_hint):
           contents=prompt,
       )
       if response and response.text:
+        print(
+            f"[{time.strftime('%H:%M:%S' )}] Текст успешно сгенерирован"
+            " нейросетью."
+        )
         return response.text.strip()
     except Exception as e:
-      print(f"Попытка {attempt + 1} не удалась (ошибка AI): {e}")
+      print(
+          f"[{time.strftime('%H:%M:%S' )}] Попытка {attempt + 1} генерации AI"
+          f" не удалась: {e}"
+      )
       time.sleep(2)
 
   return (
@@ -96,6 +107,7 @@ def download_temp_image(img_url):
             " like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
     }
+    print(f"[{time.strftime('%H:%M:%S' )}] Скачивание картинки: {img_url}")
     r = requests.get(img_url, headers=headers, timeout=10)
     if r.status_code == 200 and len(r.content) > 10000:
       filename = f"temp_{abs(hash(img_url)) % 100000}.jpg"
@@ -104,12 +116,16 @@ def download_temp_image(img_url):
         f.write(r.content)
       return filepath
   except Exception as e:
-    print(f"Ошибка скачивания фото {img_url}: {e}")
+    print(f"[{time.strftime('%H:%M:%S' )}] Ошибка скачивания фото {img_url}: {e}")
   return None
 
 
 def upload_photo_to_vk(filepath):
   try:
+    print(
+        f"[{time.strftime('%H:%M:%S' )}] Запрос сервера загрузки фото в VK"
+        " (photos.getWallUploadServer)..."
+    )
     res = requests.get(
         "https://api.vk.com/method/photos.getWallUploadServer",
         params={
@@ -126,11 +142,19 @@ def upload_photo_to_vk(filepath):
 
     upload_url = res["response"]["upload_url"]
 
+    print(
+        f"[{time.strftime('%H:%M:%S' )}] Отправка файла картинки на сервер"
+        " ВК..."
+    )
     with open(filepath, "rb") as f:
       upload_res = requests.post(
           upload_url, files={"photo": f}, timeout=15
       ).json()
 
+    print(
+        f"[{time.strftime('%H:%M:%S' )}] Сохранение фото на стене"
+        " (photos.saveWallPhoto)..."
+    )
     save_res = requests.post(
         "https://api.vk.com/method/photos.saveWallPhoto",
         data={
@@ -150,11 +174,14 @@ def upload_photo_to_vk(filepath):
 
     photo_obj = save_res["response"][0]
     attachment = f"photo{photo_obj['owner_id']}_{photo_obj['id']}"
-    print(f"Фото успешно загружено в VK: {attachment}")
+    print(
+        f"[{time.strftime('%H:%M:%S' )}] Фото успешно загружено и привязано:"
+        f" {attachment}"
+    )
     return attachment
 
   except Exception as e:
-    print(f"Исключение при загрузке фото в VK: {e}")
+    print(f"[{time.strftime('%H:%M:%S' )}] Исключение при загрузке фото в VK: {e}")
     return None
 
 
@@ -175,19 +202,21 @@ def publish_post_to_vk(title, text, image_paths, source_link):
     return False
 
   full_message = f"{title}\n\n{text}\n\nИсточник: {source_link}"
-
-  # Публикация в отложенные записи ровно через 2 часа (7200 секунд)
   future_time = int(time.time()) + 7200
 
   try:
+    print(
+        f"[{time.strftime('%H:%M:%S' )}] Отправка отложенного поста в VK"
+        " (wall.post)..."
+    )
     post_res = requests.post(
         "https://api.vk.com/method/wall.post",
         data={
-            "owner_id": -int(RAW_GROUP_ID),  # Для стены группы нужен минус
+            "owner_id": -int(RAW_GROUP_ID),
             "from_group": 1,
             "message": full_message,
             "attachments": ",".join(attachments),
-            "publish_date": future_time,  # Отправка в отложенные
+            "publish_date": future_time,
             "access_token": VK_TOKEN,
             "v": "5.199",
         },
@@ -200,12 +229,13 @@ def publish_post_to_vk(title, text, image_paths, source_link):
 
     post_id = post_res["response"]["post_id"]
     print(
-        f"УСПЕХ! Пост сохранен в отложенные записи VK (ID записи: {post_id})"
+        f"[{time.strftime('%H:%M:%S' )}] УСПЕХ! Пост сохранен в отложенные"
+        f" записи VK (ID: {post_id})"
     )
     return True
 
   except Exception as e:
-    print(f"Исключение при вызове wall.post: {e}")
+    print(f"[{time.strftime('%H:%M:%S' )}] Исключение при вызове wall.post: {e}")
     return False
 
 
@@ -226,116 +256,4 @@ def run():
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
           " like Gecko) Chrome/120.0.0.0 Safari/537.36"
       ),
-      "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
-  }
-
-  print(f"Запрос к {TARGET_URL}...")
-  try:
-    response = requests.get(TARGET_URL, headers=headers, timeout=10)
-  except Exception as e:
-    print(f"Ошибка соединения с сайтом: {e}")
-    return
-
-  if response.status_code != 200:
-    print(f"Сайт вернул статус {response.status_code}")
-    return
-
-  soup = BeautifulSoup(response.text, "html.parser")
-  found_links = []
-  for a in soup.find_all("a", href=True):
-    href = a["href"]
-    if (
-        "/2026/" in href
-        or "/2025/" in href
-        or "/post/" in href
-        or "/editorial/" in href
-    ):
-      if not href.startswith("http"):
-        href = BASE_DOMAIN + href
-      clean_link = href.split("#")[0]
-      if (
-          clean_link != TARGET_URL
-          and clean_link not in found_links
-          and clean_link not in history
-      ):
-        found_links.append(clean_link)
-
-  print(f"Найдено новых (ещё не опубликованных) статей: {len(found_links)}")
-
-  if not found_links:
-    print("Новых статей для публикации пока нет.")
-    return
-
-  link = found_links[0]
-  print(f"Обработка статьи: {link}")
-
-  try:
-    art_resp = requests.get(link, headers=headers, timeout=10)
-    if art_resp.status_code != 200:
-      print(f"Не удалось открыть статью: {art_resp.status_code}")
-      return
-    art_soup = BeautifulSoup(art_resp.text, "html.parser")
-  except Exception as e:
-    print(f"Ошибка загрузки статьи: {e}")
-    return
-
-  title_el = art_soup.select_one("h1") or art_soup.select_one("title")
-  title = title_el.get_text(strip=True) if title_el else "Beauty Editorial"
-  title = title.split("|")[0].split("-")[0].strip()
-
-  content_block = art_soup.select_one(
-      "article, .entry-content, .post-body, .content"
-  ) or art_soup.select_one("body")
-
-  image_paths = []
-  seen_urls = set()
-  for img in content_block.find_all("img"):
-    src = (
-        img.get("data-src") or img.get("data-original") or img.get("src") or ""
-    )
-    if src and "data:image" not in src:
-      if not src.startswith("http"):
-        src = BASE_DOMAIN + src
-      if (
-          "avatar" not in src
-          and "logo" not in src
-          and "icon" not in src
-          and src not in seen_urls
-      ):
-        seen_urls.add(src)
-        local_path = download_temp_image(src)
-        if local_path:
-          image_paths.append(local_path)
-        if len(image_paths) >= 9:
-          break
-
-  print(f"Скачано фото для загрузки в VK: {len(image_paths)}")
-  if not image_paths:
-    print("Нет подходящих фото, пропускаем статью.")
-    cleanup_temp_images()
-    return
-
-  paragraphs = [
-      p.get_text(strip=True)
-      for p in content_block.find_all("p")
-      if len(p.get_text(strip=True)) > 40
-  ]
-  context_hint = " ".join(paragraphs[:2])[:600] if paragraphs else title
-
-  magazine_hint = (
-      title if "Vogue" in title or "Elle" in title else "модном журнале"
-  )
-  ai_text = generate_ai_article(
-      model_name=title, magazine=magazine_hint, description_hint=context_hint
-  )
-
-  success = publish_post_to_vk(title, ai_text, image_paths, link)
-  if success:
-    history.append(link)
-    save_history(history)
-
-  cleanup_temp_images()
-
-
-if __name__ == "__main__":
-  run()
+      "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,
