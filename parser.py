@@ -135,7 +135,10 @@ def publish_post_to_vk_custom(title, text, source_link, publish_time):
     print("Пропуск публикации: не заданы VK_TOKEN или VK_GROUP_ID.")
     return False
 
-  full_message = f"{title}\n\n{text}\n\n{source_link}"
+  # Делаем ссылку некликабельной (заменяем точку в домене, чтобы ВК не превращал ее в активную ссылку)
+  safe_link = f"Источник: {source_link.replace('https://', '').replace('.', '[dot]')}"
+
+  full_message = f"{title}\n\n{text}\n\n{safe_link}"
 
   try:
     print(
