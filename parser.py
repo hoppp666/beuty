@@ -27,7 +27,6 @@ def generate_ai_article(model_name, magazine, description_hint):
         " #fashion #editorial #vogue"
     )
 
-  # Промпт настроен на легкий слог живого блогера и добавление интересных фактов
   prompt = (
       f"Напиши живой, увлекательный и легкий пост-статью на русском языке"
       f" (примерно 1100-1300 символов) для модного бьюти-сообщества ВКонтакте."
@@ -47,7 +46,7 @@ def generate_ai_article(model_name, magazine, description_hint):
   for attempt in range(2):
     try:
       response = client.models.generate_content(
-          model="gemini-1.5-flash",
+          model="gemini-2.0-flash",
           contents=prompt,
       )
       if response and response.text:
