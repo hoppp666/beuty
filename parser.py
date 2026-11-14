@@ -45,57 +45,74 @@ def save_history(history):
     json.dump(history[-MAX_HISTORY:], f, ensure_ascii=False, indent=2)
 
 
-def generate_ai_article(model_name, magazine, description_hint):
+def generate_ai_article(article_title, full_context):
   if not client:
     return (
-        f"Новая потрясающая фотосессия: {model_name} для {magazine}.\n\n#beauty"
+        f"Новая модная съемка: {article_title}.\n\n{full_context[:500]}...\n\n#beauty"
         " #fashion #editorial #vogue"
     )
 
   prompt = (
-      "Напиши живой, увлекательный и легкий пост-статью на русском языке"
-      " (примерно 1100-1300 символов) для модного бьюти-сообщества ВКонтакте."
-      f" Расскажи про новую фотосессию, где главная звезда — {model_name},"
-      f" а съемка вышла в журнале {magazine}."
-      f" Контекст/детали из статьи: {description_hint}."
-      " Пиши так, будто ты увлеченный фэшн-инсайдер: без сухого канцелярита"
-      " и банальных клише, с душой и вкусом."
-      " Обязательно органично вплети в текст 1-2 интересных факта (например,"
-      " о карьере модели, истории бренда, концепции фотографа или стиле"
-      " съемки), чтобы читателю было действительно любопытно."
-      " Не используй Markdown-разметку (звездочки ** или решетки для"
-      " заголовков), так как ВКонтакте её не форматирует — используй только"
-      " чистый текст и абзацы."
-      " В самом конце текста обязательно добавь 5-6 актуальных хештегов на"
-      " тему моды, бьюти и стиля (например: #beauty #fashion #editorial #style"
-      " #vogue)."
+      "Ты — главный редактор глянцевого модного и бьюти-издания. Напиши"
+      " полноценную, увлекательную и информативную новость-статью на русском"
+      " языке объемом 1500–2000 символов для сообщества ВКонтакте.\n\n"
+      f"Тема и заголовок съемки: {article_title}\n"
+      f"Исходный текст и детали со страницы: {full_context}\n\n"
+      "Требования к статье:\n"
+      "1. Начни с яркого, цепляющего вступления (лида), которое сразу погружает в"
+      " атмосферу съемки (укажи модель, фотографа, издание и настроение"
+      " кадров, если они есть в исходном тексте).\n"
+      "2. Подробно опиши визуальную концепцию, бьюти-образы (макияж, укладки),"
+      " стилистику одежды и ключевые бренды из текста.\n"
+      "3. ОБЯЗАТЕЛЬНО добавь 2–3 интересных бэкграунд-факта: о карьере или"
+      " достижениях этой модели, об уникальном почерке фотографа, об истории"
+      " модного дома или об эстетике самого журнала.\n"
+      "4. Пиши живым, профессиональным журнальным языком, без сухого"
+      " машинного перевода и канцелярита. Разбей текст на 4–5 логичных абзацев"
+      " для удобного чтения.\n"
+      "5. НЕ используй Markdown-разметку (никаких звездочек **, решеток # для"
+      " заголовков или тире для списков), так как ВКонтакте её не форматирует."
+      " Используй только чистый текст.\n"
+      "6. В самом конце с новой строки добавь 6–7 релевантных хештегов"
+      " (например: #beauty #fashion #editorial #style #vogue #model #photoshoot)."
   )
+
+  # Список моделей по приоритету на случай, если одна из них перегружена или недоступна
+  models_to_try = [
+      "gemini-3.8-flash",
+      "gemini-2.5-pro",
+      "gemini-2.5-flash",
+      "gemini-2.0-flash",
+  ]
+
+  for model_name in models_to_try:
+    print(
+        f"[{time.strftime('%H:%M:%S' )}] Отправка запроса к Gemini ({model_name})..."
+    )
+    try:
+      response = client.models.generate_content(
+          model=model_name,
+          contents=prompt,
+      )
+      if response and response.text:
+        print(
+            f"[{time.strftime('%H:%M:%S' )}] Статья успешно сгенерирована"
+            f" моделью {model_name} (длина: {len(response.text)} симв.)."
+        )
+        return response.text.strip()
+    except Exception as e:
+      print(
+          f"[{time.strftime('%H:%M:%S' )}] Модель {model_name} не ответила: {e}"
+      )
+      time.sleep(1)
 
   print(
-      f"[{time.strftime('%H:%M:%S' )}] Отправка запроса к Gemini API для"
-      " генерации текста..."
+      f"[{time.strftime('%H:%M:%S' )}] Все модели AI недоступны, формируем"
+      " расширенный текст из исходника."
   )
-  try:
-    response = client.models.generate_content(
-        model="gemini-3.8-flash",
-        contents=prompt,
-    )
-    if response and response.text:
-      print(
-          f"[{time.strftime('%H:%M:%S' )}] Текст успешно сгенерирован"
-          " нейросетью."
-      )
-      return response.text.strip()
-  except Exception as e:
-    print(
-        f"[{time.strftime('%H:%M:%S' )}] Ошибка Gemini API: {e}."
-        " Используем запасной текст."
-    )
-
   return (
-      f"Яркая бьюти-история: {model_name} в новом выпуске {magazine}. Элегантные"
-      " образы, вдохновляющие детали и безупречный стиль.\n\n#beauty #fashion"
-      " #editorial #makeup #style"
+      f"Новая фотосессия: {article_title}.\n\n{full_context[:900]}...\n\n#beauty"
+      " #fashion #editorial #makeup #style #photoshoot"
   )
 
 
@@ -104,10 +121,7 @@ def publish_post_to_vk(title, text, source_link):
     print("Пропуск публикации: не заданы VK_TOKEN или VK_GROUP_ID.")
     return False
 
-  # Формируем сообщение, где ссылка идет отдельной строкой, чтобы ВК сгенерировал превью
   full_message = f"{title}\n\n{text}\n\n{source_link}"
-  
-  # Отложенная публикация через 2 часа (можно изменить при желании)
   future_time = int(time.time()) + 7200
 
   try:
@@ -144,6 +158,30 @@ def publish_post_to_vk(title, text, source_link):
     return False
 
 
+def extract_article_title(art_soup, url):
+  # Ищем реальный заголовок статьи на Squarespace (игнорируя логотип сайта)
+  selectors = [
+      "h1.entry-title",
+      "article h1",
+      ".post-title",
+      ".entry-header h1",
+      "meta[property='og:title']",
+  ]
+  for sel in selectors:
+    el = art_soup.select_one(sel)
+    if el:
+      raw_title = (
+          el.get("content", "") if el.name == "meta" else el.get_text(strip=True)
+      )
+      clean_title = raw_title.split("— Anne of Carversville")[0].split("|")[0].strip()
+      if clean_title and clean_title.lower() != "anne of carversville":
+        return clean_title
+
+  # Если заголовок не найден в тегах, берем его прямо из красивого URL статьи
+  slug = url.rstrip("/").split("/")[-1]
+  return slug.replace("-", " ").title()
+
+
 def run():
   history = load_history()
   print(
@@ -175,11 +213,6 @@ def run():
         f" {response.status_code}"
     )
     return
-
-  print(
-      f"[{time.strftime('%H:%M:%S' )}] Главная страница загружена,"
-      f" размер ответа: {len(response.text)} символов"
-  )
 
   soup = BeautifulSoup(response.text, "html.parser")
   found_links = []
@@ -214,10 +247,6 @@ def run():
   print(f"[{time.strftime('%H:%M:%S' )}] Выбрана статья для обработки: {link}")
 
   try:
-    print(
-        f"[{time.strftime('%H:%M:%S' )}] Загрузка содержимого выбранной"
-        " статьи..."
-    )
     art_resp = requests.get(link, headers=headers, timeout=10)
     if art_resp.status_code != 200:
       print(f"Не удалось открыть страницу статьи: {art_resp.status_code}")
@@ -227,28 +256,26 @@ def run():
     print(f"Ошибка загрузки статьи: {e}")
     return
 
-  title_el = art_soup.select_one("h1") or art_soup.select_one("title")
-  title = title_el.get_text(strip=True) if title_el else "Beauty Editorial"
-  title = title.split("|")[0].split("-")[0].strip()
-  print(f"[{time.strftime('%H:%M:%S' )}] Заголовок статьи: {title}")
+  title = extract_article_title(art_soup, link)
+  print(f"[{time.strftime('%H:%M:%S' )}] Реальный заголовок статьи: {title}")
 
   content_block = art_soup.select_one(
-      "article, .entry-content, .post-body, .content"
+      "article, .entry-content, .post-body, .sqs-block-content"
   ) or art_soup.select_one("body")
 
   paragraphs = [
-      p.get_text(strip=True)
+      p.get_text(" ", strip=True)
       for p in content_block.find_all("p")
-      if len(p.get_text(strip=True)) > 40
+      if len(p.get_text(strip=True)) > 30
   ]
-  context_hint = " ".join(paragraphs[:2])[:600] if paragraphs else title
+  # Забираем до 3000 символов исходного текста, чтобы AI получил максимум деталей
+  full_context = "\n".join(paragraphs)[:3000] if paragraphs else title
+  print(
+      f"[{time.strftime('%H:%M:%S' )}] Собрано текста со страницы:"
+      f" {len(full_context)} символов."
+  )
 
-  magazine_hint = (
-      title if "Vogue" in title or "Elle" in title else "модном журнале"
-  )
-  ai_text = generate_ai_article(
-      model_name=title, magazine=magazine_hint, description_hint=context_hint
-  )
+  ai_text = generate_ai_article(article_title=title, full_context=full_context)
 
   success = publish_post_to_vk(title, ai_text, link)
   if success:
