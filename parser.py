@@ -256,3 +256,40 @@ def run():
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
           " like Gecko) Chrome/120.0.0.0 Safari/537.36"
       ),
+      "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+  }
+
+  print(f"[{time.strftime('%H:%M:%S' )}] Запрос главной страницы {TARGET_URL}...")
+  try:
+    response = requests.get(TARGET_URL, headers=headers, timeout=10)
+  except Exception as e:
+    print(
+        f"[{time.strftime('%H:%M:%S' )}] Ошибка соединения с сайтом-источником:"
+        f" {e}"
+    )
+    return
+
+  if response.status_code != 200:
+    print(
+        f"[{time.strftime('%H:%M:%S' )}] Сайт вернул неожиданный статус:"
+        f" {response.status_code}"
+    )
+    return
+
+  print(
+      f"[{time.strftime('%H:%M:%S' )}] Главная страница загружена,"
+      " парсим ссылки на статьи..."
+  )
+  soup = BeautifulSoup(response.text, "html.parser")
+  found_links = []
+  for a in soup.find_all("a", href=True):
+    href = a["href"]
+    if (
+        "/2026/" in href
+        or "/2025/" in href
+        or "/post/" in href
+        or "/editorial/" in href
+    ):
+      if not href.startswith("http"):
+        href = BASE_DOMAIN + href
+      clean_link = href.split("#
