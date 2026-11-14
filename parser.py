@@ -42,8 +42,8 @@ def ask_gemini(prompt):
     print("GEMINI_API_KEY не задан.")
     return None
 
-  # Официальный эндпоинт Google Gemini API
-  url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+  # Используем стабильную классическую модель gemini-1.5-flash
+  url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
 
   headers = {"Content-Type": "application/json"}
   payload = {"contents": [{"parts": [{"text": prompt}]}]}
