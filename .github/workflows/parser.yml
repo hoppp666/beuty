@@ -1,11 +1,11 @@
-name: VK Beauty Autopost
+name: VK Beauty Autopost (Gemini)
 
 on:
-  # Запуск каждый час
+  # Запуск каждый час (автоматически)
   schedule:
     - cron: '0 * * * *'
   
-  # Кнопка для ручного запуска в вкладке Actions
+  # Кнопка для ручного запуска во вкладке Actions на GitHub
   workflow_dispatch:
 
 jobs:
@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: write # Нужно для сохранения posted.json
+      contents: write # Требуется для автоматического сохранения posted.json
 
     steps:
       - name: Checkout repository
@@ -31,7 +31,7 @@ jobs:
 
       - name: Run parser script
         env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           VK_TOKEN: ${{ secrets.VK_TOKEN }}
           VK_GROUP_ID: ${{ secrets.VK_GROUP_ID }}
         run: |
