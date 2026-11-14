@@ -42,8 +42,8 @@ def ask_gemini(prompt):
     print("GEMINI_API_KEY не задан.")
     return None
 
-  # Используем стабильную классическую модель gemini-1.5-flash
-  url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+  # Используем модель gemini-3.5-flash-lite
+  url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key={GEMINI_API_KEY}"
 
   headers = {"Content-Type": "application/json"}
   payload = {"contents": [{"parts": [{"text": prompt}]}]}
@@ -262,74 +262,3 @@ def run():
   BATCH_LIMIT = 2
   target_links = found_links[:BATCH_LIMIT]
   print(
-      f"[{time.strftime('%H:%M:%S')}] В текущем запуске будет обработано"
-      f" статей: {len(target_links)}"
-  )
-
-  base_delay_seconds = 7200
-  interval_between_posts = 10800
-
-  for index, link in enumerate(target_links):
-    print(f"\n--- Обработка статьи {index+1} из {len(target_links)}: {link} ---")
-
-    try:
-      art_resp = requests.get(link, headers=headers, timeout=10)
-      if art_resp.status_code != 200:
-        print(f"Не удалось открыть страницу статьи: {art_resp.status_code}")
-        continue
-      art_soup = BeautifulSoup(art_resp.text, "html.parser")
-    except Exception as e:
-      print(f"Ошибка загрузки статьи: {e}")
-      continue
-
-    raw_title = extract_article_title(art_soup, link)
-    print(f"[{time.strftime('%H:%M:%S')}] Оригинальный заголовок: {raw_title}")
-
-    title = generate_russian_title(raw_title)
-    print(
-        f"[{time.strftime('%H:%M:%S')}] Переведенный заголовок для ВК: {title}"
-    )
-
-    content_block = art_soup.select_one(
-        "article, .entry-content, .post-body, .sqs-block-content"
-    ) or art_soup.select_one("body")
-
-    paragraphs = [
-        p.get_text(" ", strip=True)
-        for p in content_block.find_all("p")
-        if len(p.get_text(strip=True)) > 30
-    ]
-    full_context = "\n".join(paragraphs)[:3000] if paragraphs else title
-    print(
-        f"[{time.strftime('%H:%M:%S')}] Собрано текста со страницы:"
-        f" {len(full_context)} символов."
-    )
-
-    ai_text = generate_gemini_article(
-        article_title=raw_title, full_context=full_context
-    )
-
-    custom_publish_time = (
-        int(time.time())
-        + base_delay_seconds
-        + (index * interval_between_posts)
-    )
-
-    success = publish_post_to_vk_custom(
-        title, ai_text, link, custom_publish_time
-    )
-    if success:
-      history.append(link)
-      save_history(history)
-      print(
-          f"[{time.strftime('%H:%M:%S')}] Ссылка добавлена в историю"
-          " posted.json."
-      )
-
-    time.sleep(3)
-
-  print(f"\n[{time.strftime('%H:%M:%S')}] Работа скрипта успешно завершена.")
-
-
-if __name__ == "__main__":
-  run()
