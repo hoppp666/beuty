@@ -1,7 +1,7 @@
 name: Auto Post to VK
 
 on:
-  # Запуск по расписанию (каждые 3 часа, можете изменить под себя)
+  # Запуск по расписанию (каждые 3 часа)
   schedule:
     - cron: '0 */3 * * *'
   
@@ -47,6 +47,7 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
+          touch posted.json
           git add posted.json
           git commit -m "Update posted.json history" || exit 0
           git push
