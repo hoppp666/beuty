@@ -42,7 +42,6 @@ def ask_gemini(prompt):
     print("GEMINI_API_KEY не задан.")
     return None
 
-  # Используем модель gemini-3.5-flash-lite
   url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key={GEMINI_API_KEY}"
 
   headers = {"Content-Type": "application/json"}
@@ -214,51 +213,4 @@ def run():
   }
 
   print(f"[{time.strftime('%H:%M:%S')}] Запрос главной страницы {TARGET_URL}...")
-  try:
-    response = requests.get(TARGET_URL, headers=headers, timeout=10)
-  except Exception as e:
-    print(
-        f"[{time.strftime('%H:%M:%S')}] Ошибка соединения с сайтом-источником:"
-        f" {e}"
-    )
-    return
-
-  if response.status_code != 200:
-    print(
-        f"[{time.strftime('%H:%M:%S')}] Сайт вернул неожиданный статус:"
-        f" {response.status_code}"
-    )
-    return
-
-  soup = BeautifulSoup(response.text, "html.parser")
-  found_links = []
-  for a in soup.find_all("a", href=True):
-    href = a["href"]
-    if (
-        "/2026/" in href
-        or "/2025/" in href
-        or "/post/" in href
-        or "/editorial/" in href
-    ):
-      if not href.startswith("http"):
-        href = BASE_DOMAIN + href
-      clean_link = href.split("#")[0]
-      if (
-          clean_link != TARGET_URL
-          and clean_link not in found_links
-          and clean_link not in history
-      ):
-        found_links.append(clean_link)
-
-  print(
-      f"[{time.strftime('%H:%M:%S')}] Найдено новых неопубликованных статей:"
-      f" {len(found_links)}"
-  )
-
-  if not found_links:
-    print(f"[{time.strftime('%H:%M:%S')}] Новых статей для публикации нет.")
-    return
-
-  BATCH_LIMIT = 2
-  target_links = found_links[:BATCH_LIMIT]
-  print(
+  try
