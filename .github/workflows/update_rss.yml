@@ -1,54 +1,16 @@
-name: Generate Beauty RSS
-
-on:
-  schedule:
-    - cron: '0 */2 * * *'
-  workflow_dispatch:
-
-permissions:
-  contents: write
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install dependencies
-        run: |
-          python -m venv venv
-          source venv/bin/activate
-          pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Run parser & AI generator
+- name: Run parser and post to VK
         env:
-          GITHUB_REPOSITORY: ${{ github.repository }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          VK_TOKEN: ${{ secrets.VK_TOKEN }}
+          VK_GROUP_ID: ${{ secrets.VK_GROUP_ID }}
         run: |
           source venv/bin/activate
           python parser.py
 
-      - name: Commit and push changes
+      - name: Save history
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          
-          # Проверяем наличие файла feed.xml перед добавлением
-          if [ -f "feed.xml" ]; then
-            git add feed.xml
-          fi
-          
-          # Проверяем наличие папки images перед добавлением
-          if [ -d "images" ] && [ "$(ls -A images)" ]; then
-            git add images/
-          fi
-          
-          # Коммитим только если есть изменения
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update RSS and images [skip ci]" && git push)
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add posted.json
+          git commit -m "Update posted history" || exit 0
+          git push
