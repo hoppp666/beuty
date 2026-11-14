@@ -102,7 +102,7 @@ def parse_articles(base_pages_url):
       ),
       "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
   }
-  print( запроса к {TARGET_URL}...")
+  print(f"Запрос к {TARGET_URL}...")
   response = requests.get(TARGET_URL, headers=headers)
   print(f"Статус ответа сайта: {response.status_code}")
 
@@ -136,7 +136,7 @@ def parse_articles(base_pages_url):
         continue
       art_soup = BeautifulSoup(art_resp.text, "html.parser")
     except Exception as e:
-      print(f"Ошибка запроса статьи: {e}")
+      print(f"Запрос к {TARGET_URL}...")
       continue
 
     content_block = art_soup.select_one(".entry-content") or art_soup.select_one(
