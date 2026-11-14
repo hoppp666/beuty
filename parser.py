@@ -23,7 +23,8 @@ def generate_ai_article(model_name, magazine, description_hint):
   if not client:
     return (
         f"Новая потрясающая фотосессия с участием {model_name} для"
-        f" {magazine}. Смотрите кадры в высоком разрешении!"
+        f" {magazine}. Смотрите кадры в высоком разрешении!\n\n#beauty"
+        " #fashion #editorial #vogue"
     )
 
   prompt = (
@@ -34,11 +35,14 @@ def generate_ai_article(model_name, magazine, description_hint):
       f" Контекст/детали: {description_hint}."
       " Пиши профессионально, но легко, на чистом русском языке, без банальных"
       " клише и канцелярита."
+      " В самом конце текста обязательно добавь 5-6 актуальных и популярных"
+      " хештегов на тему бьюти, моды и фотосессий (например: #beauty #fashion"
+      " #editorial #makeup #style)."
   )
 
   try:
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.8-flash",
         contents=prompt,
     )
     return response.text.strip()
@@ -46,7 +50,8 @@ def generate_ai_article(model_name, magazine, description_hint):
     print(f"Ошибка генерации текста через AI: {e}")
     return (
         f"Яркая бьюти-история: {model_name} в новом выпуске {magazine}. Элегантные"
-        " образы и вдохновляющие детали макияжа."
+        " образы и вдохновляющие детали макияжа.\n\n#beauty #fashion"
+        " #editorial #makeup #style"
     )
 
 
