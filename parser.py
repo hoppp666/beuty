@@ -1,12 +1,12 @@
 from datetime import datetime
 import os
 import time
-from bs4 import BeautifulSoup
+from bs4].text import BeautifulSoup  # type: ignore
 from google import genai
 import requests
 
-TARGET_URL = "https://www.designscene.net/beauty"
-BASE_DOMAIN = "https://www.designscene.net"
+TARGET_URL = "https://anneofcarversville.com/beauty"
+BASE_DOMAIN = "https://anneofcarversville.com"
 FEED_FILENAME = "feed.xml"
 IMAGES_DIR = "images"
 MAX_ITEMS_HISTORY = 30
@@ -51,6 +51,8 @@ def generate_ai_article(model_name, magazine, description_hint):
 
 
 def download_and_save_image(img_url, save_dir, base_pages_url):
+  if not img_url or "data:image" in img_url or "svg" in img_url:
+    return None
   if not os.path.exists(save_dir):
     os.makedirs(save_dir)
   try:
@@ -61,7 +63,7 @@ def download_and_save_image(img_url, save_dir, base_pages_url):
         )
     }
     r = requests.get(img_url, headers=headers, timeout=10)
-    if r.status_code == 200:
+    if r.status_code == 200 and len(r.content) > 10000:  # отсекаем мелкие иконки
       filename = (
           datetime.utcnow().strftime("%Y%m%d%H%M%S_")
           + str(abs(hash(img_url)) % 10000)
@@ -70,7 +72,7 @@ def download_and_save_image(img_url, save_dir, base_pages_url):
       filepath = os.path.join(save_dir, filename)
       with open(filepath, "wb") as f:
         f.write(r.content)
-      print(f"Картинка сохранена: {filename}")
+      print(f"Картинка успешно скачана и сохранена: {filename}")
       return f"{base_pages_url}images/{filename}"
   except Exception as e:
     print(f"Не удалось скачать картинку {img_url}: {e}")
@@ -113,12 +115,11 @@ def parse_articles(base_pages_url):
   soup = BeautifulSoup(response.text, "html.parser")
   articles = []
 
-  # На Design SCENE посты находятся в блоках .post или тегах article
-  item_list = soup.select("article, .post")
+  item_list = soup.select("article, .post, .summary-item")
   print(f"Найдено элементов постов на странице: {len(item_list)}")
 
   for item in item_list[:3]:
-    title_el = item.select_one("h2 a, h3 a, .entry-title a")
+    title_el = item.select_one("h2 a, h3 a, .title a, h2, h3")
     link_el = item.select_one("a")
     if not title_el or not link_el:
       continue
@@ -141,18 +142,25 @@ def parse_articles(base_pages_url):
       continue
 
     content_block = art_soup.select_one(
-        ".entry-content, .post-content"
+        ".entry-content, .post-body, .content"
     ) or art_soup.select_one("body")
 
     images = []
     for img in content_block.find_all("img"):
-      src = img.get("src") or img.get("data-src")
-      if src:
+      # Проверяем разные атрибуты картинок (включая оригиналы и дата-атрибуты)
+      src = (
+          img.get("data-src")
+          or img.get("data-original")
+          or img.get("src")
+          or ""
+      )
+      if src and "data:image" not in src:
         if not src.startswith("http"):
           src = BASE_DOMAIN + src
         if (
             "avatar" not in src
             and "logo" not in src
+            and "icon" not in src
             and src not in images
             and len(images) < 9
         ):
@@ -162,6 +170,7 @@ def parse_articles(base_pages_url):
 
     print(f"Собрано картинок для статьи: {len(images)}")
     if not images:
+      print("Пропускаем статью, так как не найдено качественных фото.")
       continue
 
     magazine_hint = (
