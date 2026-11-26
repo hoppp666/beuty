@@ -1,25 +1,71 @@
 from datetime import datetime
 import json
 import os
+import random
+import re
 import time
 from bs4 import BeautifulSoup
+import feedparser
 import requests
+import trafilatura
 
-print(f"[{time.strftime('%H:%M:%S')}] Скрипт запущен...")
+print(f"[{time.strftime('%H:%M:%S')}] Запуск парсера (текстовый режим)...")
 
-TARGET_URL = "https://www.fashiongonerogue.com/celeb/"
-BASE_DOMAIN = "https://www.fashiongonerogue.com/celeb"
+# Источники: мода, бьюти, светские скандалы, хип-хоп/рэп, новости о звездах
+RSS_FEEDS = [
+    "https://rap-up.com",  # Rap-Up: хип-хоп, R&B, скандалы, релизы
+    "https://pagesix.com",  # Page Six: громкие скандалы, разводы, смерти звезд
+    "https://people.com",  # People: светская хроника, жизнь и утраты знаменитостей
+    "https://allure.com",  # Allure: бьюти-тренды, макияж, уход
+    "https://fashiongonerogue.com",  # Fashion Gone Rogue: модные съемки и кампейны
+    "https://harpersbazaar.com",  # Harper's Bazaar: мода и стиль
+]
+
+# Быстрый стоп-лист политики до обращения к нейросети
+POLITICS_STOP_WORDS = [
+    "trump",
+    "biden",
+    "harris",
+    "vance",
+    "obama",
+    "senate",
+    "congress",
+    "election",
+    "white house",
+    "republican",
+    "democrat",
+    "ukraine",
+    "russia",
+    "putin",
+    "zelensky",
+    "israel",
+    "gaza",
+    "palestine",
+    "nato",
+    "parliament",
+    "prime minister",
+    "sanctions",
+    "tariff",
+    "pentagon",
+    "governor",
+    "mayor",
+]
+
 HISTORY_FILE = "posted.json"
-MAX_HISTORY = 100
+MAX_HISTORY = 300
+BATCH_LIMIT = 3  # Сколько постов ставить в отложку за один запуск
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 VK_TOKEN = os.environ.get("VK_TOKEN")
 RAW_GROUP_ID = os.environ.get("VK_GROUP_ID", "").lstrip("-")
 
-print(f"[{time.strftime('%H:%M:%S')}] Инициализация скрипта...")
-print(f"GEMINI_API_KEY найден: {'Да' if GEMINI_API_KEY else 'НЕТ!'}")
-print(f"VK_TOKEN найден: {'Да' if VK_TOKEN else 'НЕТ!'}")
-print(f"VK_GROUP_ID найден: {RAW_GROUP_ID if RAW_GROUP_ID else 'НЕТ!'}")
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 
 def load_history():
@@ -37,303 +83,268 @@ def save_history(history):
     json.dump(history[-MAX_HISTORY:], f, ensure_ascii=False, indent=2)
 
 
-def ask_gemini(prompt):
-  if not GEMINI_API_KEY:
-    print("GEMINI_API_KEY не задан.")
+def is_obviously_politics(text):
+  lower_text = text.lower()
+  for word in POLITICS_STOP_WORDS:
+    if re.search(rf"\b{re.escape(word)}\b", lower_text):
+      return True
+  return False
+
+
+def fetch_full_article(url):
+  """Скачивает полный текст статьи без обрывов."""
+  try:
+    resp = requests.get(url, headers=HEADERS, timeout=15)
+    if resp.status_code != 200:
+      return None
+
+    html = resp.text
+    full_text = trafilatura.extract(
+        html, include_comments=False, include_tables=False, no_fallback=False
+    )
+
+    if not full_text:
+      soup = BeautifulSoup(html, "html.parser")
+      paragraphs = [
+          p.get_text(" ", strip=True)
+          for p in soup.find_all("p")
+          if len(p.get_text(strip=True)) > 40
+      ]
+      full_text = "\n\n".join(paragraphs)
+
+    return full_text
+  except Exception as e:
+    print(f"Ошибка при скачивании страницы {url}: {e}")
     return None
 
-  url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key={GEMINI_API_KEY}"
 
-  headers = {"Content-Type": "application/json"}
-  payload = {"contents": [{"parts": [{"text": prompt}]}]}
+def process_with_gemini(raw_title, full_text):
+  """Фильтрует политику, переводит живым русским языком и генерирует 10-12 хештегов."""
+  if not GEMINI_API_KEY:
+    print("GEMINI_API_KEY не задан!")
+    return None
+
+  url = f"https://googleapis.com{GEMINI_API_KEY}"
+
+  prompt = f"""
+Ты — опытный редактор русскоязычного паблика ВКонтакте о звездах, шоу-бизнесе, скандалах, моде и бьюти.
+Проанализируй исходную статью на английском языке.
+
+Заголовок: {raw_title}
+Текст статьи:
+{full_text[:6000]}
+
+ВЫПОЛНИ ЗАДАЧИ И ВЕРНИ ОТВЕТ СТРОГО В ФОРМАТЕ JSON:
+
+1. ФИЛЬТР ПОЛИТИКИ:
+Если статья касается политики, выборов, президентов, министров, законов, войн, санкций, митингов или политических скандалов — верни ТОЛЬКО:
+{{"skip": true, "reason": "politics"}}
+Даже если в статье упоминается певица или актер, но суть новости про политику — пропускай!
+
+2. ПЕРЕВОД И АДАПТАЦИЯ (если статья подходит):
+- Пиши простыми, живыми, естественными русскими словами, как пишут в популярных развлекательных и лайфстайл-медиа.
+- ИЗБЕГАЙ канцелярита, машинного перевода («кальки» с английского) и дешевых штампов вроде «визуальный экстаз», «отложите кофе» или «стеклянная кожа» там, где они неуместны.
+- Адаптируй тон под суть новости:
+  * Если это скандал, ссора, развод, арест или слухи — пиши живо, увлекательно, со всеми пикантными подробностями из текста.
+  * Если это новость о смерти или болезни знаменитости — пиши сдержанно, уважительно и точно (кто умер, возраст, причина, чем прославился).
+  * Если это мода, бьюти-тренды, выход на красную дорожку или музыкальный релиз (Rap-Up и др.) — пиши стильно, легко и понятно.
+- Передай ВСЕ ключевые факты из статьи целиком, чтобы текст не обрывался на полуслове. Оптимальный объем: 800–1600 символов, разбитых на 3–4 логичных абзаца.
+- Не используй Markdown-разметку (никаких ** или # в тексте статьи).
+
+3. ХЕШТЕГИ:
+- Сгенерируй строго от 10 до 12 релевантных хештегов, взятых ИЗ САМОЙ СТАТЬИ (имена знаменитостей на русском и английском, названия брендов, фильмов/альбомов, ключевые события и общая рубрика).
+- Формат хештегов: без пробелов внутри тега, через пробел между тегами (например: #новостизвезд #скандалы #шоубизнес #рианна #rihanna ...).
+
+Формат JSON ответа:
+{{
+  "skip": false,
+  "title": "Цепляющий и естественный заголовок на русском языке без кавычек по краям",
+  "body": "Полный связный текст поста на русском языке с абзацами",
+  "hashtags": "#тег1 #тег2 #тег3 #тег4 #тег5 #тег6 #тег7 #тег8 #тег9 #тег10"
+}}
+"""
+
+  payload = {
+      "contents": [{"parts": [{"text": prompt}]}],
+      "generationConfig": {
+          "responseMimeType": "application/json",
+          "temperature": 0.65,
+      },
+  }
 
   for attempt in range(1, 4):
     try:
       print(
-          f"[{time.strftime('%H:%M:%S')}] Запрос к Gemini (попытка"
+          f"[{time.strftime('%H:%M:%S')}] Обработка в Gemini (попытка"
           f" {attempt}/3)..."
       )
-      response = requests.post(
-          url, headers=headers, json=payload, timeout=35
-      )
-      if response.status_code == 200:
-        res_json = response.json()
-        candidates = res_json.get("candidates", [])
+      resp = requests.post(url, json=payload, timeout=40)
+      if resp.status_code == 200:
+        data = resp.json()
+        candidates = data.get("candidates", [])
         if candidates:
-          text = (
+          raw_out = (
               candidates[0]
               .get("content", {})
               .get("parts", [{}])[0]
               .get("text", "")
               .strip()
           )
-          if text:
-            return text
+          raw_out = re.sub(r"^```json\s*|\s*```$", "", raw_out).strip()
+          return json.loads(raw_out)
       else:
-        print(
-            f"[{time.strftime('%H:%M:%S')}] Ошибка API Gemini"
-            f" {response.status_code}: {response.text[:150]}"
-        )
+        print(f"Ошибка Gemini API {resp.status_code}: {resp.text[:200]}")
     except Exception as e:
-      print(f"[{time.strftime('%H:%M:%S')}] Исключение сети Gemini: {e}")
-
+      print(f"Сбой при обработке ответа Gemini: {e}")
     time.sleep(3)
 
   return None
 
 
-def generate_russian_title(original_title):
-  prompt = (
-      "Translate and adapt the following English article title into fluent,"
-      " elegant, and catchy Russian suitable for a high-end fashion and beauty"
-      " magazine community. Return ONLY the translated title without any"
-      f" extra quotes or explanations:\n\n{original_title}"
-  )
-
-  translated = ask_gemini(prompt)
-  if translated:
-    return translated.replace('"', "").replace("'", "")
-  return original_title
-
-
-def generate_gemini_article(article_title, full_context):
-  prompt = (
-      "⚠️ СТРОГОЕ ПРАВИЛО: Весь текст статьи, описания образов, бэкграунд-факты"
-      " и хештеги должны быть НАПИСАНЫ ИСКЛЮЧИТЕЛЬНО НА РУССКОМ ЯЗЫКЕ.\n\n"
-      "Ты — главный редактор глянцевого модного и бьюти-издания. Напиши"
-      " полноценную, увлекательную и информативную новость-статью на русском"
-      f" языке объемом 1500–2000 символов по мотивам съемки: '{article_title}'.\n\n"
-      f"Исходный текст и детали со страницы: {full_context}\n\n"
-      "Требования к статье:\n"
-      "1. Начни с яркого, цепляющего вступления, которое сразу погружает в"
-      " атмосферу съемки (модель, фотограф, издание и настроение кадров).\n"
-      "2. Подробно опиши визуальную концепцию, бьюти-образы (макияж, укладки),"
-      " стилистику одежды и ключевые бренды.\n"
-      "3. ОБЯЗАТЕЛЬНО добавь 2–3 интересных бэкграунд-факта: о карьере модели,"
-      " почерке фотографа или истории журнала.\n"
-      "4. Пиши живым журнальным языком, разбей текст на 4–5 логичных абзацев.\n"
-      "5. НЕ используй Markdown-разметку (никаких звездочек **, решеток # для"
-      " заголовков или тире для списков).\n"
-      "6. В самом конце с новой строки добавь 6–7 релевантных хештегов"
-      " (например: #beauty #fashion #editorial #стиль #мода #vogue)."
-  )
-
-  ai_text = ask_gemini(prompt)
-  if ai_text:
-    return ai_text
-
-  print("Не удалось получить текст от Gemini, используем резервный вариант.")
-  return (
-      f"Яркая бьюти-история: {article_title}.\n\n"
-      f"{full_context[:800]}...\n\n"
-      "#beauty #fashion #editorial #makeup #style #photoshoot"
-  )
-
-
-def publish_post_to_vk_custom(title, text, source_link, publish_time):
+def publish_to_vk(title, body, hashtags, publish_time):
   if not VK_TOKEN or not RAW_GROUP_ID:
-    print("Пропуск публикации: не заданы VK_TOKEN или VK_GROUP_ID.")
+    print("Пропуск публикации: нет VK_TOKEN или VK_GROUP_ID.")
     return False
 
-  # Делаем ссылку некликабельной (заменяем точку в домене, чтобы ВК не превращал ее в активную ссылку)
-  safe_link = f"Источник: {source_link.replace('https://', '').replace('.', '[dot]')}"
+  full_message = f"{title}\n\n{body}\n\n{hashtags}"
 
-  full_message = f"{title}\n\n{text}\n\n{safe_link}"
+  # Защита от превышения лимита символов ВК
+  if len(full_message) > 3900:
+    trimmed_body = body[:3400].rsplit(".", 1)[0]
+    full_message = f"{title}\n\n{trimmed_body}.\n\n{hashtags}"
+
+  post_data = {
+      "owner_id": -int(RAW_GROUP_ID),
+      "from_group": 1,
+      "message": full_message,
+      "publish_date": publish_time,
+      "access_token": VK_TOKEN,
+      "v": "5.199",
+  }
 
   try:
-    print(
-        f"[{time.strftime('%H:%M:%S')}] Отправка отложенного поста в VK"
-        f" (время публикации: {datetime.fromtimestamp(publish_time).strftime('%Y-%m-%d %H:%M')})..."
-    )
-    post_res = requests.post(
-        "https://api.vk.com/method/wall.post",
-        data={
-            "owner_id": -int(RAW_GROUP_ID),
-            "from_group": 1,
-            "message": full_message,
-            "publish_date": publish_time,
-            "access_token": VK_TOKEN,
-            "v": "5.199",
-        },
-        timeout=15,
+    res = requests.post(
+        "https://vk.com", data=post_data, timeout=15
     ).json()
-
-    if "error" in post_res:
-      print(f"Ошибка сохранения отложенного поста в VK: {post_res['error']}")
+    if "error" in res:
+      print(f"Ошибка ВК wall.post: {res['error']}")
       return False
 
-    post_id = post_res["response"]["post_id"]
+    post_id = res["response"]["post_id"]
+    dt_str = datetime.fromtimestamp(publish_time).strftime("%Y-%m-%d %H:%M")
     print(
-        f"[{time.strftime('%H:%M:%S')}] УСПЕХ! Пост сохранен в отложенные"
-        f" записи ВК (ID: {post_id})"
+        f"[{time.strftime('%H:%M:%S')}] УСПЕХ! Пост (ID: {post_id}) в отложке на"
+        f" {dt_str}"
     )
     return True
-
   except Exception as e:
-    print(f"[{time.strftime('%H:%M:%S')}] Исключение при вызове wall.post: {e}")
+    print(f"Исключение при отправке в ВК: {e}")
     return False
 
 
-def extract_article_title(art_soup, url):
-  selectors = [
-      "h1.entry-title",
-      "article h1",
-      ".post-title",
-      ".entry-header h1",
-      "meta[property='og:title']",
-  ]
-  for sel in selectors:
-    el = art_soup.select_one(sel)
-    if el:
-      raw_title = (
-          el.get("content", "")
-          if el.name == "meta"
-          else el.get_text(strip=True)
-      )
-      clean_title = (
-          raw_title.split("— Anne of Carversville")[0].split("|")[0].strip()
-      )
-      if clean_title and clean_title.lower() != "anne of carversville":
-        return clean_title
+def collect_candidates(history):
+  """Собирает свежие ссылки из всех RSS-лент."""
+  candidates = []
+  seen_urls = set(history)
 
-  slug = url.rstrip("/").split("/")[-1]
-  return slug.replace("-", " ").title()
+  for feed_url in RSS_FEEDS:
+    print(f"[{time.strftime('%H:%M:%S')}] Чтение ленты: {feed_url}")
+    try:
+      feed = feedparser.parse(feed_url)
+      for entry in feed.entries[:5]:
+        raw_link = entry.get("link", "")
+        link = raw_link.split("#")[0].split("?")[0].strip()
+        title = entry.get("title", "").strip()
+        summary = entry.get("summary", "")
+
+        if not link or link in seen_urls:
+          continue
+
+        if is_obviously_politics(f"{title} {summary}"):
+          print(f"  [Фильтр] Пропуск политики по заголовку: {title[:60]}...")
+          seen_urls.add(link)
+          history.append(link)
+          continue
+
+        seen_urls.add(link)
+        candidates.append({"url": link, "title": title})
+    except Exception as e:
+      print(f"Ошибка чтения RSS {feed_url}: {e}")
+
+  random.shuffle(candidates)
+  return candidates
 
 
 def run():
   history = load_history()
-  print(
-      f"[{time.strftime('%H:%M:%S')}] Загружена история, записей в"
-      f" posted.json: {len(history)}"
-  )
+  candidates = collect_candidates(history)
+  save_history(history)
 
-  headers = {
-      "User-Agent": (
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-          " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-      ),
-      "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
-  }
-
-  print(f"[{time.strftime('%H:%M:%S')}] Запрос главной страницы {TARGET_URL}...")
-  try:
-    response = requests.get(TARGET_URL, headers=headers, timeout=10)
-  except Exception as e:
-    print(
-        f"[{time.strftime('%H:%M:%S')}] Ошибка соединения с сайтом-источником:"
-        f" {e}"
-    )
+  print(f"[{time.strftime('%H:%M:%S')}] Найдено кандидатов: {len(candidates)}")
+  if not candidates:
     return
 
-  if response.status_code != 200:
-    print(
-        f"[{time.strftime('%H:%M:%S')}] Сайт вернул неожиданный статус:"
-        f" {response.status_code}"
-    )
-    return
+  published_count = 0
+  # Ставим отложку с запасом (через 3 часа от запуска), чтобы ты успел прикрепить фото
+  base_delay = 10800
+  step_delay = 7200
 
-  soup = BeautifulSoup(response.text, "html.parser")
-  found_links = []
-  for a in soup.find_all("a", href=True):
-    href = a["href"]
-    if (
-        "/2026/" in href
-        or "/2025/" in href
-        or "/post/" in href
-        or "/editorial/" in href
-    ):
-      if not href.startswith("http"):
-        href = BASE_DOMAIN + href
-      clean_link = href.split("#")[0]
-      if (
-          clean_link != TARGET_URL
-          and clean_link not in found_links
-          and clean_link not in history
-      ):
-        found_links.append(clean_link)
+  for item in candidates:
+    if published_count >= BATCH_LIMIT:
+      break
 
-  print(
-      f"[{time.strftime('%H:%M:%S')}] Найдено новых неопубликованных статей:"
-      f" {len(found_links)}"
-  )
+    url = item["url"]
+    raw_title = item["title"]
+    print(f"\n--- Проверяем статью: {raw_title} ({url}) ---")
 
-  if not found_links:
-    print(f"[{time.strftime('%H:%M:%S')}] Новых статей для публикации нет.")
-    return
-
-  BATCH_LIMIT = 2
-  target_links = found_links[:BATCH_LIMIT]
-  print(
-      f"[{time.strftime('%H:%M:%S')}] В текущем запуске будет обработано"
-      f" статей: {len(target_links)}"
-  )
-
-  base_delay_seconds = 7200
-  interval_between_posts = 10800
-
-  for index, link in enumerate(target_links):
-    print(f"\n--- Обработка статьи {index+1} из {len(target_links)}: {link} ---")
-
-    try:
-      art_resp = requests.get(link, headers=headers, timeout=10)
-      if art_resp.status_code != 200:
-        print(f"Не удалось открыть страницу статьи: {art_resp.status_code}")
-        continue
-      art_soup = BeautifulSoup(art_resp.text, "html.parser")
-    except Exception as e:
-      print(f"Ошибка загрузки статьи: {e}")
+    full_text = fetch_full_article(url)
+    if not full_text or len(full_text) < 250:
+      print("Текст слишком короткий или не удалось скачать страницу, пропуск.")
+      history.append(url)
+      save_history(history)
       continue
 
-    raw_title = extract_article_title(art_soup, link)
-    print(f"[{time.strftime('%H:%M:%S')}] Оригинальный заголовок: {raw_title}")
-
-    title = generate_russian_title(raw_title)
-    print(
-        f"[{time.strftime('%H:%M:%S')}] Переведенный заголовок для ВК: {title}"
-    )
-
-    content_block = art_soup.select_one(
-        "article, .entry-content, .post-body, .sqs-block-content"
-    ) or art_soup.select_one("body")
-
-    paragraphs = []
-    if content_block:
-      for p in content_block.find_all("p"):
-        txt = p.get_text(" ", strip=True)
-        if len(txt) > 30:
-          paragraphs.append(txt)
-
-    full_context = "\n".join(paragraphs)[:3000] if paragraphs else title
-    print(
-        f"[{time.strftime('%H:%M:%S')}] Собрано текста со страницы:"
-        f" {len(full_context)} символов."
-    )
-
-    ai_text = generate_gemini_article(
-        article_title=raw_title, full_context=full_context
-    )
-
-    custom_publish_time = (
-        int(time.time())
-        + base_delay_seconds
-        + (index * interval_between_posts)
-    )
-
-    success = publish_post_to_vk_custom(
-        title, ai_text, link, custom_publish_time
-    )
-    if success:
-      history.append(link)
+    if is_obviously_politics(full_text[:1500]):
+      print("Обнаружена политика в тексте статьи, пропуск.")
+      history.append(url)
       save_history(history)
+      continue
+
+    result = process_with_gemini(raw_title, full_text)
+       if not result:
+      print("Gemini не вернул корректный JSON, попробуем в следующий раз.")
+      continue
+
+    if result.get("skip"):
       print(
-          f"[{time.strftime('%H:%M:%S')}] Ссылка добавлена в историю"
-          " posted.json."
+          "ИИ отфильтровал статью (причина:"
+          f" {result.get('reason', 'не подходит')})."
       )
+      history.append(url)
+      save_history(history)
+      continue
+
+    ru_title = result.get("title", "").strip()
+    ru_body = result.get("body", "").strip()
+    hashtags = result.get("hashtags", "").strip()
+
+    if not ru_title or not ru_body:
+      continue
+
+    publish_time = int(time.time()) + base_delay + (published_count * step_delay)
+    if publish_to_vk(ru_title, ru_body, hashtags, publish_time):
+      published_count += 1
+      history.append(url)
+      save_history(history)
 
     time.sleep(3)
 
-  print(f"\n[{time.strftime('%H:%M:%S')}] Работа скрипта успешно завершена.")
+  print(
+      f"\n[{time.strftime('%H:%M:%S')}] Готово! Опубликовано в отложку:"
+      f" {published_count}"
+  )
 
 
 if __name__ == "__main__":
   run()
+
