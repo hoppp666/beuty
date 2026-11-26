@@ -298,13 +298,14 @@ def run():
 
         publish_time = int(time.time()) + base_delay + (published_count * step_delay)
         if publish_to_vk(ru_title, ru_body, hashtags, publish_time):
-published_count += 1
-history.append(url)
-save_history(history)
-time.sleep(3)
-print(
-f"\n[{time.strftime('%H:%M:%S')}] Готово! Опубликовано в отложку: "
-f"{published_count}"
-)
-if name == "main":
-run()
+            published_count += 1
+            history.append(url)
+            save_history(history)
+
+        time.sleep(3)
+
+    print(f"\n[{time.strftime('%H:%M:%S')}] Готово! В отложке: {published_count}")
+
+
+if __name__ == "__main__":
+    run()
