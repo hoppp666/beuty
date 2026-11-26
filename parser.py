@@ -1,23 +1,26 @@
-from datetime import datetime
 import json
 import os
 import random
 import re
 import time
-from bs4 import BeautifulSoup
+from datetime import datetime
+
 import feedparser
 import requests
 import trafilatura
+from bs4 import BeautifulSoup
 
 print(f"[{time.strftime('%H:%M:%S')}] Запуск парсера (текстовый режим)...")
 
 RSS_FEEDS = [
-    "https://rap-up.com",
-    "https://pagesix.com",
-    "https://people.com",
-    "https://allure.com",
-    "https://fashiongonerogue.com",
-    "https://harpersbazaar.com",
+    "https://www.rap-up.com/feed/",
+    "https://pagesix.com/feed/",
+    "https://people.com/feed/",
+    "https://www.allure.com/feed/rss",
+    "https://www.fashiongonerogue.com/feed/",
+    "https://www.harpersbazaar.com/rss/all.xml/",
+    "https://www.reddit.com/r/popculturechat/.rss",
+    "https://www.reddit.com/r/Fauxmoi/.rss",
 ]
 
 POLITICS_STOP_WORDS = [
@@ -100,7 +103,7 @@ def process_with_gemini(raw_title, full_text):
         return None
 
     url = (
-        "https://googleapis.com"
+        "https://generativelanguage.googleapis.com/v1beta/models/"
         f"gemini-3.5-flash-lite:generateContent?key={GEMINI_API_KEY}"
     )
 
@@ -191,7 +194,7 @@ def publish_to_vk(title, body, hashtags, publish_time):
 
     try:
         res = requests.post(
-            "https://vk.com", data=post_data, timeout=15
+            "https://api.vk.com/method/wall.post", data=post_data, timeout=15
         ).json()
         if "error" in res:
             print(f"Ошибка ВК wall.post: {res['error']}")
@@ -216,8 +219,11 @@ def collect_candidates(history):
     for feed_url in RSS_FEEDS:
         print(f"[{time.strftime('%H:%M:%S')}] Чтение ленты: {feed_url}")
         try:
-            feed = feedparser.parse(feed_url)
-            for entry in feed.entries[:5]:
+            resp = requests.get(feed_url, headers=HEADERS, timeout=15)
+            feed = feedparser.parse(resp.content)
+            print(f"  -> Загружено записей из ленты: {len(feed.entries)}")
+
+            for entry in feed.entries[:6]:
                 raw_link = entry.get("link", "")
                 link = raw_link.split("#")[0].split("?")[0].strip()
                 title = entry.get("title", "").strip()
