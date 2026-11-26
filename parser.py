@@ -1,15 +1,15 @@
-import os
-import re
 import json
-import time
+import os
 import random
+import re
+import time
 from datetime import datetime
-import requests
-import feedparser
-import trafilatura
 from bs4 import BeautifulSoup
+import feedparser
+import requests
+import trafilatura
 
-print(f"[{time.strftime('%H:%M:%S')}] Запуск парсера (v3: строгий фильтр нативной рекламы и советов)...")
+print(f"[{time.strftime('%H:%M:%S')}] Запуск парсера v4 (событийный фильтр + анти-реклама)...")
 
 RSS_FEEDS = [
     "https://www.rap-up.com/feed/",
@@ -22,10 +22,10 @@ RSS_FEEDS = [
 ]
 
 TG_CHANNELS = [
-    "superru",
-    "spletnikru",
-    "peopletalkru",
-    "thevoicemag",
+    "https://t.me/s/superru",
+    "https://t.me/s/spletnik_ru",
+    "https://t.me/s/peopletalkru",
+    "https://t.me/s/thevoicemag",
 ]
 
 POLITICS_STOP_WORDS = [
@@ -33,31 +33,28 @@ POLITICS_STOP_WORDS = [
     "election", "white house", "republican", "democrat", "ukraine",
     "russia", "putin", "zelensky", "israel", "gaza", "palestine", "nato",
     "parliament", "prime minister", "sanctions", "tariff", "pentagon",
-    "governor", "mayor", "выборы", "президент", "госдума", "депутат",
-    "министр", "санкции", "политика", "парламент", "сенат", "конгресс",
-    "митинг", "протест", "законопроект",
+    "governor", "mayor", "трамп", "байден", "выборы", "сенат", "конгресс",
+    "санкции", "митинг", "депутат", "госдума", "министр", "президент",
+    "правительство", "законопроект",
 ]
 
-ADS_AND_ADVICE_STOP_WORDS = [
+ADS_STOP_WORDS = [
     "black friday", "cyber monday", "promo code", "discount", "best deals",
-    "gift guide", "sale", "shop now", "affiliate", "sponsored", "partner",
-    "must-have", "best products", "editors' picks",
-    "черная пятница", "чёрная пятница", "скидки", "скидка", "распродажа",
-    "промокод", "акция", "erid", "реклама", "партнерский", "партнёрский",
-    "подборка", "купить со скидкой", "выгодная цена", "каталог",
-    "советы косметолога", "как выбрать", "топ средств", "салон красоты",
-    "записаться", "онлайн-запись", "уход за ногтями", "наращивание",
+    "gift guide", "shop now", "affiliate", "sponsored", "must-have",
+    "on sale", "save up to", "черная пятница", "чёрная пятница", "скидки",
+    "распродажа", "промокод", "erid", "реклама", "партнерский", "партнёрский",
+    "подборка товаров", "купить со скидкой", "акция", "салон красоты",
+    "записаться на", "как выбрать", "твердый гель", "твёрдый гель",
 ]
 
-FOREIGN_AGENTS_AND_TOXIC_STOP = [
-    "иноагент", "иностранный агент", "пугачева", "пугачёва", "галкин",
-    "моргенштерн", "morgenshtern", "oxxxymiron", "оксимирон", "земфира",
-    "литл биг", "little big", "прусикин", "гребенщиков", "макаревич",
-    "дудь", "собчак", "ивлеева", "блиновская", "шаман", "shaman",
-    "мизулина", "мельниченко", "поперечный", "гудков", "лазарева",
-    "смольянинов", "хаматова", "белый", "слепаков", "кац", "варламов",
-    "монеточка", "нойз", "noize mc", "фейс", "face", "лобода", "барских",
-    "брежнева", "мельникова", "панин", "назаров", "ахеджакова",
+FOREIGN_AGENTS_STOP = [
+    "пугачева", "пугачёва", "галкин", "макаревич", "гребенщиков", "земфира",
+    "оксимирон", "oxxxymiron", "моргенштерн", "morgenshtern", "нойз", "noize mc",
+    "монеточка", "дудь", "собчак", "ивлеева", "блиновская", "шац", "лазарева",
+    "белый", "панин", "смольянинов", "хаматова", "белый", "литвинова",
+    "поперечный", "фейс", "face", "фараон", "kizaru", "кизару", "instasamka",
+    "инстасамка", "милохин", "даня милохин", "акунин", "быков", "невзоров",
+    "кац", "варламов", "шульман",
 ]
 
 HISTORY_FILE = "posted.json"
@@ -92,21 +89,11 @@ def save_history(history):
         json.dump(history[-MAX_HISTORY:], f, ensure_ascii=False, indent=2)
 
 
-def contains_stop_words(text, word_list):
+def contains_stop_words(text):
     lower_text = text.lower()
-    for word in word_list:
-        if re.search(rf"\b{re.escape(word)}\b", lower_text):
+    for word in POLITICS_STOP_WORDS + ADS_STOP_WORDS + FOREIGN_AGENTS_STOP:
+        if word in lower_text:
             return word
-    return None
-
-
-def check_text_filters(text):
-    if contains_stop_words(text, POLITICS_STOP_WORDS):
-        return "politics"
-    if contains_stop_words(text, ADS_AND_ADVICE_STOP_WORDS):
-        return "ads_or_advice"
-    if contains_stop_words(text, FOREIGN_AGENTS_AND_TOXIC_STOP):
-        return "blocked_person"
     return None
 
 
@@ -136,7 +123,7 @@ def fetch_full_article(url):
         return None
 
 
-def process_with_gemini(raw_title, full_text, lang="en"):
+def process_with_gemini(raw_title, full_text, is_russian=False):
     if not GEMINI_API_KEY:
         print("GEMINI_API_KEY не задан!")
         return None
@@ -146,70 +133,64 @@ def process_with_gemini(raw_title, full_text, lang="en"):
         f"gemini-3.5-flash-lite:generateContent?key={GEMINI_API_KEY}"
     )
 
-    source_note = (
-        "Исходный текст на АНГЛИЙСКОМ языке — переведи и адаптируй его."
-        if lang == "en"
-        else "Исходный текст на РУССКОМ языке (из СМИ/Telegram) — сделай живой уникальный рерайт своими словами, убери упоминания других каналов и ссылок."
+    task_lang = (
+        "Перепиши своими словами (рерайт) русскую новость, убрав упоминания "
+        "исходного телеграм-канала."
+        if is_russian
+        else "Переведи и адаптируй исходную статью на английском языке."
     )
 
     prompt = (
         "Ты — строгий главный редактор развлекательного паблика ВКонтакте о "
-        "жизни звезд, шоу-бизнесе, светских скандалах, музыке, моде и бьюти.\n"
-        f"{source_note}\n\n"
+        "звездах, шоу-бизнесе, громких скандалах, моде и бьюти.\n"
+        f"{task_lang}\n\n"
         f"Заголовок: {raw_title}\n"
         f"Текст материала:\n{full_text[:6000]}\n\n"
-        "ВЫПОЛНИ ПРОВЕРКИ И ВЕРНИ ОТВЕТ СТРОГО В ФОРМАТЕ JSON:\n\n"
-        "1. ЖЕСТКИЙ ФИЛЬТР (ПРОПУСКАТЬ НЕМЕДЛЕННО):\n"
+        "ВЫПОЛНИ ВСЕ ПРОВЕРКИ И ВЕРНИ ОТВЕТ СТРОГО В ФОРМАТЕ JSON:\n\n"
+        "1. ЖЕСТКИЙ ФИЛЬТР (если сработал хоть один пункт — верни ТОЛЬКО "
+        '{"skip": true, "reason": "причина"}):\n'
         "- ПОЛИТИКА: выборы, президенты, министры, законы, войны, санкции, "
-        "митинги, политические высказывания. Верни: {"skip": true, "reason": "politics"}\n"
-        "- ЛЮБАЯ РЕКЛАМА И НАТИВНЫЕ ОБЗОРЫ: скидки, Черная пятница, распродажи, "
-        "промокоды, подборки косметики/одежды («лучшие кремы», «что купить»), "
-        "а также любые завуалированные рекламные тексты и описания процедур/товаров "
-        "без реального инфоповода (например, тексты в стиле «для тех, кто мечтает о "
-        "длинных ногтях, существует твердый гель, доверяйте профессионалам...»). "
-        "Верни: {"skip": true, "reason": "ads"}\n"
-        "- ПОЛЕЗНЫЕ СОВЕТЫ БЕЗ ЗВЕЗД: инструкции («как сделать маникюр», «5 правил "
-        "ухода», «чем отличается гель от акрила»), если в новости нет конкретного "
-        "события со знаменитостью или модным домом. Верни: {"skip": true, "reason": "advice"}\n"
-        "- РОССИЙСКИЕ ПЕРСОНЫ С НЕГАТИВНОЙ РЕПУТАЦИЕЙ: если речь о российских "
-        "звездах со статусом иноагента, уехавших со скандалами или вызывающих "
-        "сильный негатив у аудитории — пропускай! Пропускай ТОЛЬКО новости про "
-        "тех российских артистов, актеров и моделей, к которым в России относятся "
-        "тепло и с симпатией (Юра Борисов, Полина Гагарина, Сергей Лазарев, Ирина "
-        "Шейк, Zivert, Баста, Люся Чеботина, Милош Бикович и т.п.). "
-        "Верни: {"skip": true, "reason": "reputation"}\n\n"
-        "2. ТРЕБОВАНИЯ К ПОСТУ (если материал прошел все фильтры и содержит реальное событие):\n"
-        "- Пиши простыми, живыми, естественными русскими словами, без канцелярита "
-        "и машинного перевода.\n"
-        "- Не добавляй от себя рекламных призывов («доверяйте профессионалам», "
-        "«наслаждайтесь результатом» и т.п.).\n"
-        "- Подстраивай подачу: скандалы и слухи — увлекательно и с деталями; "
-        "смерть или болезнь — сдержанно и уважительно; мода, музыка (Rap-Up) и "
-        "светская хроника — легко и стильно.\n"
-        "- Передай все ключевые факты без обрывов. Объем: 800–1600 символов, "
-        "3–4 абзаца. Без Markdown-разметки (** или #).\n\n"
+        "митинги или политические высказывания звезд.\n"
+        "- РЕКЛАМА, СКИДКИ И НАТИВНЫЕ СОВЕТЫ: Черная пятница, распродажи, "
+        "промокоды, подборки покупок, обзоры баночек, скрытая реклама салонов "
+        "или процедур (вроде «как выбрать гель для ногтей», «5 советов по уходу»). "
+        "Пропускай материал, если в нем НЕТ живого новостного события (инфоповода)!\n"
+        "- НЕГАТИВНЫЕ ПЕРСОНЫ И ИНОАГЕНТЫ (для российских звезд): пропускай "
+        "иноагентов, уехавших со скандалами артистов и блогеров с токсичной "
+        "репутацией. Оставляй только новости про любимых и уважаемых в России "
+        "звезд (Юра Борисов, Полина Гагарина, Сергей Лазарев, Ирина Шейк, "
+        "Люся Чеботина, Баста, Zivert, Милош Бикович, Светлана Ходченкова и др.) "
+        "или зарубежных знаменитостей.\n\n"
+        "2. ТЕКСТ ПОСТА (если материал прошел все фильтры):\n"
+        "- Пиши простыми, живыми, естественными русскими словами.\n"
+        "- Избегай канцелярита и дословной кальки с английского.\n"
+        "- Тон подстраивай под событие: скандалы, ссоры и разводы — живо и с "
+        "подробностями; смерть или болезнь звезды — сдержанно и уважительно; "
+        "мода, выходы в свет или музыка (Rap-Up и др.) — стильно и легко.\n"
+        "- Передай ВСЕ ключевые факты целиком без обрывов на полуслове. "
+        "Объем: 800–1600 символов, 3–4 абзаца. Без Markdown-разметки (** или #).\n\n"
         "3. ХЕШТЕГИ:\n"
         "- Сгенерируй строго от 10 до 12 релевантных хештегов ИЗ САМОЙ СТАТЬИ "
-        "(имена звезд на русском и английском, бренды, фильмы/треки, события и "
-        "рубрика) через пробел.\n\n"
+        "(имена знаменитостей на русском и английском, бренды, фильмы/треки, "
+        "ключевые события и рубрика) через пробел.\n\n"
         "Формат JSON ответа:\n"
-        "{"skip": false, "title": "Заголовок на русском без кавычек", "
-        ""body": "Полный связный текст поста на русском с абзацами", "
-        ""hashtags": "#тег1 #тег2 #тег3 #тег4 #тег5 #тег6 #тег7 #тег8 #тег9 #тег10"}"
+        '{"skip": false, "title": "Заголовок на русском без кавычек", '
+        '"body": "Полный текст поста на русском с абзацами", '
+        '"hashtags": "#тег1 #тег2 #тег3 #тег4 #тег5 #тег6 #тег7 #тег8 #тег9 #тег10"}'
     )
 
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
             "responseMimeType": "application/json",
-            "temperature": 0.55,
+            "temperature": 0.65,
         },
     }
 
     for attempt in range(1, 4):
         try:
             print(
-                f"[{time.strftime('%H:%M:%S')}] Проверка и редактура в Gemini "
+                f"[{time.strftime('%H:%M:%S')}] Обработка в Gemini "
                 f"(попытка {attempt}/3)..."
             )
             resp = requests.post(url, json=payload, timeout=40)
@@ -287,15 +268,20 @@ def collect_rss_candidates(history, seen_urls):
                 if not link or link in seen_urls:
                     continue
 
-                reason = check_text_filters(f"{title} {summary}")
-                if reason:
-                    print(f"  [Стоп-фильтр: {reason}] {title[:55]}...")
+                bad_word = contains_stop_words(f"{title} {summary}")
+                if bad_word:
+                    print(f"  [Стоп-слово '{bad_word}'] Пропуск: {title[:55]}...")
                     seen_urls.add(link)
                     history.append(link)
                     continue
 
                 seen_urls.add(link)
-                candidates.append({"url": link, "title": title, "lang": "en", "text": None})
+                candidates.append({
+                    "url": link,
+                    "title": title,
+                    "text": None,
+                    "is_russian": False,
+                })
         except Exception as e:
             print(f"Ошибка чтения RSS {feed_url}: {e}")
     return candidates
@@ -303,47 +289,41 @@ def collect_rss_candidates(history, seen_urls):
 
 def collect_tg_candidates(history, seen_urls):
     candidates = []
-    for channel in TG_CHANNELS:
-        url = f"https://t.me/s/{channel}"
-        print(f"[{time.strftime('%H:%M:%S')}] Чтение Telegram-канала: @{channel}")
+    for tg_url in TG_CHANNELS:
+        print(f"[{time.strftime('%H:%M:%S')}] Чтение Telegram: {tg_url}")
         try:
-            resp = requests.get(url, headers=HEADERS, timeout=15)
+            resp = requests.get(tg_url, headers=HEADERS, timeout=15)
             if resp.status_code != 200:
                 continue
             soup = BeautifulSoup(resp.text, "html.parser")
-            messages = soup.select(".tgme_widget_message")
-            for msg in messages[-6:]:
-                post_id = msg.get("data-post", "")
-                if not post_id:
-                    continue
-                post_url = f"https://t.me/{post_id}"
-                if post_url in seen_urls:
-                    continue
-
+            messages = soup.select(".tgme_widget_message_wrap")[-6:]
+            for msg in messages:
+                link_el = msg.select_one("a.tgme_widget_message_date")
                 text_el = msg.select_one(".tgme_widget_message_text")
-                if not text_el:
+                if not link_el or not text_el:
                     continue
-                raw_text = text_el.get_text("\n", strip=True)
-                if len(raw_text) < 180:
+                post_url = link_el.get("href", "").strip()
+                post_text = text_el.get_text("\n", strip=True)
+                if not post_url or post_url in seen_urls or len(post_text) < 180:
                     continue
 
-                reason = check_text_filters(raw_text)
-                if reason:
-                    print(f"  [Стоп-фильтр TG: {reason}] {raw_text[:55]}...")
+                bad_word = contains_stop_words(post_text)
+                if bad_word:
+                    print(f"  [Стоп-слово '{bad_word}'] Пропуск TG-поста...")
                     seen_urls.add(post_url)
                     history.append(post_url)
                     continue
 
-                first_line = raw_text.split("\n")[0][:120]
+                first_line = post_text.split("\n")[0][:90]
                 seen_urls.add(post_url)
                 candidates.append({
                     "url": post_url,
                     "title": first_line,
-                    "lang": "ru",
-                    "text": raw_text,
+                    "text": post_text,
+                    "is_russian": True,
                 })
         except Exception as e:
-            print(f"Ошибка чтения TG @{channel}: {e}")
+            print(f"Ошибка чтения Telegram {tg_url}: {e}")
     return candidates
 
 
@@ -356,7 +336,7 @@ def run():
     save_history(history)
 
     random.shuffle(candidates)
-    print(f"[{time.strftime('%H:%M:%S')}] Отобрано кандидатов после первичных фильтров: {len(candidates)}")
+    print(f"[{time.strftime('%H:%M:%S')}] Всего кандидатов: {len(candidates)}")
     if not candidates:
         return
 
@@ -370,30 +350,33 @@ def run():
 
         url = item["url"]
         raw_title = item["title"]
-        lang = item["lang"]
-        print(f"\n--- Проверяем материал ({lang.upper()}): {raw_title[:70]} ---")
+        is_russian = item["is_russian"]
+        print(f"\n--- Проверяем материал: {raw_title[:65]} ({url}) ---")
 
         full_text = item["text"] if item["text"] else fetch_full_article(url)
-        if not full_text or len(full_text) < 200:
-            print("Текст слишком короткий или недоступен, пропуск.")
+        if not full_text or len(full_text) < 220:
+            print("Текст слишком короткий или страница недоступна, пропуск.")
             history.append(url)
             save_history(history)
             continue
 
-        reason = check_text_filters(full_text[:2500])
-        if reason:
-            print(f"Отсеяно по стоп-словам в тексте ({reason}), пропуск.")
+        bad_word = contains_stop_words(full_text[:2000])
+        if bad_word:
+            print(f"Обнаружено стоп-слово '{bad_word}' в тексте, пропуск.")
             history.append(url)
             save_history(history)
             continue
 
-        result = process_with_gemini(raw_title, full_text, lang=lang)
+        result = process_with_gemini(raw_title, full_text, is_russian=is_russian)
         if not result:
             print("Gemini не вернул корректный JSON, попробуем в следующий раз.")
             continue
 
         if result.get("skip"):
-            print(f"ИИ отклонил материал (причина: {result.get('reason', 'не подходит')}).")
+            print(
+                "ИИ отфильтровал материал "
+                f"(причина: {result.get('reason', 'не подходит')})."
+            )
             history.append(url)
             save_history(history)
             continue
@@ -413,7 +396,7 @@ def run():
 
         time.sleep(3)
 
-    print(f"\n[{time.strftime('%H:%M:%S')}] Готово! Поставлено в отложку: {published_count}")
+    print(f"\n[{time.strftime('%H:%M:%S')}] Готово! В отложке: {published_count}")
 
 
 if __name__ == "__main__":
